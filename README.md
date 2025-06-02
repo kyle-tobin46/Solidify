@@ -13,7 +13,7 @@ This web application lets you visualize the solid formed by revolving a function
 ## Usage
 
 1. Open the application in a browser.
-2. Use the text input at the top left to define your function, e.g.:
+2. Use the text input at the top left to define your function, e.g.:  
 `Math.sin(x)
 Math.pow(x, 2)
 Math.exp(-x * x)`
