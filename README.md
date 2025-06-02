@@ -40,7 +40,7 @@ No build tools required. Include the script via a bundler or serve the HTML file
 
 - Dynamic planes for zooming
 - Dynamic step counts by zoom
-- Add support for rotating around the y-axis and arbitrary lines
+- ~~Add support for rotating around the y-axis and arbitrary lines~~
 - Display symbolic and numeric volume computation
 - Add tick marks and axis labels
 - Improve error handling for invalid function input
