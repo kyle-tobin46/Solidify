@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 let mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine;
 let domainLines = [];
 
+// === Input Elements ===
 const slider = document.createElement("input");
 slider.type = "range";
 slider.min = 0;
@@ -26,7 +27,7 @@ document.body.appendChild(input);
 
 const xMinInput = document.createElement("input");
 xMinInput.type = "number";
-xMinInput.value = "-50";
+xMinInput.value = "-1";
 xMinInput.style.position = "absolute";
 xMinInput.style.top = "70px";
 xMinInput.style.left = "10px";
@@ -34,7 +35,7 @@ document.body.appendChild(xMinInput);
 
 const xMaxInput = document.createElement("input");
 xMaxInput.type = "number";
-xMaxInput.value = "50";
+xMaxInput.value = "1";
 xMaxInput.style.position = "absolute";
 xMaxInput.style.top = "100px";
 xMaxInput.style.left = "10px";
@@ -57,6 +58,28 @@ secondFuncInput.style.top = "160px";
 secondFuncInput.style.left = "10px";
 secondFuncInput.placeholder = "second function (optional)";
 document.body.appendChild(secondFuncInput);
+
+// === Buttons for Camera Views ===
+const frontBtn = document.createElement("button");
+frontBtn.innerText = "Front View";
+frontBtn.style.position = "absolute";
+frontBtn.style.top = "190px";
+frontBtn.style.left = "10px";
+document.body.appendChild(frontBtn);
+
+const sideBtn = document.createElement("button");
+sideBtn.innerText = "Side View";
+sideBtn.style.position = "absolute";
+sideBtn.style.top = "220px";
+sideBtn.style.left = "10px";
+document.body.appendChild(sideBtn);
+
+const topBtn = document.createElement("button");
+topBtn.innerText = "Top View";
+topBtn.style.position = "absolute";
+topBtn.style.top = "250px";
+topBtn.style.left = "10px";
+document.body.appendChild(topBtn);
 
 // === 2. Scene Setup ===
 const scene = new THREE.Scene();
@@ -105,15 +128,67 @@ scene.add(gridHelperXY);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableZoom = true;
 controls.enableDamping = true;
-controls.dampingFactor = 0.05;
+controls.dampingFactor = 0.1;
 
-// === 8. Function Evaluators ===
+// === 8. Camera Direction Lines ===
+// Add two purple lines from the origin extending 10 units toward and away from the camera’s initial position
+const camDir = new THREE.Vector3().copy(camera.position).normalize();
+const pointTowards = camDir.clone().multiplyScalar(10);
+const pointAway = camDir.clone().multiplyScalar(-10);
+
+const purpleMaterial = new THREE.LineBasicMaterial({ color: 'purple' });
+
+const geometryTow = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0, 0, 0),
+  pointTowards
+]);
+const lineTow = new THREE.Line(geometryTow, purpleMaterial);
+scene.add(lineTow);
+
+const geometryAway = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0, 0, 0),
+  pointAway
+]);
+const lineAway = new THREE.Line(geometryAway, purpleMaterial);
+scene.add(lineAway);
+
+// === 9. Camera Animation State ===
+let isCameraAnimating = false;
+const cameraStartPos = new THREE.Vector3();
+const cameraEndPos = new THREE.Vector3();
+let animStartTime = 0;
+const animDuration = 500; // milliseconds
+
+// Helper to start camera animation
+function animateCameraTo(x, y, z) {
+  cameraStartPos.copy(camera.position);
+  cameraEndPos.set(x, y, z);
+  animStartTime = performance.now();
+  isCameraAnimating = true;
+}
+
+// Button event listeners (use animated camera)
+frontBtn.addEventListener("click", () => {
+  // front view → positive Z
+  animateCameraTo(0, 0, 10);
+});
+
+sideBtn.addEventListener("click", () => {
+  // side view → positive X
+  animateCameraTo(10, 0, 0);
+});
+
+topBtn.addEventListener("click", () => {
+  // top‐down → positive Y
+  animateCameraTo(0, 10, 0);
+});
+
+// === 10. Function Evaluators ===
 function f(x) {
   return eval(input.value);
 }
 function f2(x, isYAxis, axisValue) {
   if (!secondFuncInput.value.trim()) {
-    // If no second function, default to axis‐line value
     return isYAxis ? axisValue : f(x);
   }
   try {
@@ -123,7 +198,7 @@ function f2(x, isYAxis, axisValue) {
   }
 }
 
-// === 9. Mesh Builder ===
+// === 11. Mesh Builder ===
 function buildMesh(angleDeg) {
   const uStart = parseFloat(xMinInput.value);
   const uEnd   = parseFloat(xMaxInput.value);
@@ -363,17 +438,45 @@ function buildMesh(angleDeg) {
   scene.add(secondBlueLineMesh);
 }
 
-// === 10. Events ===
+// === 12. Events ===
 slider.addEventListener("input", () => buildMesh(parseFloat(slider.value)));
 [input, xMinInput, xMaxInput, axisInput, secondFuncInput].forEach(el =>
   el.addEventListener("change", () => buildMesh(parseFloat(slider.value)))
 );
 
-// === 11. Initial Render & Animation ===
+// === 13. Initial Render & Animation ===
 buildMesh(0);
+
 function animate() {
   requestAnimationFrame(animate);
+
+  if (isCameraAnimating) {
+    const now = performance.now();
+    const elapsed = now - animStartTime;
+    const t = Math.min(elapsed / animDuration, 1);
+
+    // interpolate position
+    camera.position.lerpVectors(cameraStartPos, cameraEndPos, t);
+
+    // always look at origin
+    camera.up.set(0, 1, 0);
+    camera.lookAt(0, 0, 0);
+
+    // update OrbitControls target
+    controls.target.set(0, 0, 0);
+
+    if (t >= 1) {
+      // Once animation finishes, clear any residual momentum
+      controls.enableDamping = false;
+      controls.update();
+      controls.enableDamping = true;
+
+      isCameraAnimating = false;
+    }
+  }
+
   controls.update();
   renderer.render(scene, camera);
 }
+
 animate();
