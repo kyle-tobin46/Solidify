@@ -1,9 +1,11 @@
-//                === 1. Imports ===
+// === 1. Imports ===
 import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
-// HTML Elements
+let mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine;
+let domainLines = [];
+
 const slider = document.createElement("input");
 slider.type = "range";
 slider.min = 0;
@@ -22,166 +24,356 @@ input.style.top = "40px";
 input.style.left = "10px";
 document.body.appendChild(input);
 
-//                === 2. Scene Setup ===
+const xMinInput = document.createElement("input");
+xMinInput.type = "number";
+xMinInput.value = "-50";
+xMinInput.style.position = "absolute";
+xMinInput.style.top = "70px";
+xMinInput.style.left = "10px";
+document.body.appendChild(xMinInput);
+
+const xMaxInput = document.createElement("input");
+xMaxInput.type = "number";
+xMaxInput.value = "50";
+xMaxInput.style.position = "absolute";
+xMaxInput.style.top = "100px";
+xMaxInput.style.left = "10px";
+document.body.appendChild(xMaxInput);
+
+const axisInput = document.createElement("input");
+axisInput.type = "text";
+axisInput.value = "y = 0";
+axisInput.style.position = "absolute";
+axisInput.style.top = "130px";
+axisInput.style.left = "10px";
+axisInput.placeholder = "axis of rotation";
+document.body.appendChild(axisInput);
+
+const secondFuncInput = document.createElement("input");
+secondFuncInput.type = "text";
+secondFuncInput.value = "";
+secondFuncInput.style.position = "absolute";
+secondFuncInput.style.top = "160px";
+secondFuncInput.style.left = "10px";
+secondFuncInput.placeholder = "second function (optional)";
+document.body.appendChild(secondFuncInput);
+
+// === 2. Scene Setup ===
 const scene = new THREE.Scene();
 
-//                === 3. Camera Setup ===
+// === 3. Camera Setup ===
 const d = 5;
 const aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -1000, 1000);
-camera.updateProjectionMatrix();
 camera.position.set(0, 0, 10);
+camera.updateProjectionMatrix();
 
-//                === 4. Renderer Setup ===
-const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#bg') });
+window.addEventListener('resize', () => {
+  const aspect = window.innerWidth / window.innerHeight;
+  camera.left = -d * aspect;
+  camera.right = d * aspect;
+  camera.top = d;
+  camera.bottom = -d;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// === 4. Renderer Setup ===
+const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#bg'), antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
-//                === 5. Lights ===
+// === 5. Lights ===
 scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
 directionalLight.position.set(1000, 1000, 1000);
-directionalLight.target.position.set(0, 0, 0);
 scene.add(directionalLight);
 scene.add(directionalLight.target);
 
-//                === 6. Helpers ===
-const gridSize = 100;
-const gridDivisions = 100;
-const gridColor = 0xeb4034;
-const centerColor = 0xffffff;
-const gridHelperXY = new THREE.GridHelper(gridSize, gridDivisions, gridColor, centerColor);
+const pointLight = new THREE.PointLight(0xffffff, 0.6);
+pointLight.position.set(10, 10, 20);
+scene.add(pointLight);
+
+// === 6. Helpers ===
+const gridHelperXY = new THREE.GridHelper(100, 100, 0xeb4034, 0xffffff);
 gridHelperXY.material.opacity = 0.2;
 gridHelperXY.material.transparent = true;
 gridHelperXY.rotation.x = Math.PI / 2;
 scene.add(gridHelperXY);
 
-// Center axes
-function createAxisLine(start, end, color) {
-  const material = new THREE.LineBasicMaterial({ color, linewidth: 4 });
-  const points = [start, end];
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  return new THREE.Line(geometry, material);
-}
-
-scene.add(createAxisLine(new THREE.Vector3(-gridSize / 2, 0, 0), new THREE.Vector3(gridSize / 2, 0, 0), 'green'));
-scene.add(createAxisLine(new THREE.Vector3(0, -gridSize / 2, 0), new THREE.Vector3(0, gridSize / 2, 0), 'green'));
-
-// Arrows
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 0), 10, 0xff00ff, 1, 0.1));
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 10, 0xffff00, 1, 0.1));
-
-//                === 7. Controls ===
+// === 7. Controls ===
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableZoom = true;
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-//                === 8. Function Graphing ===
+// === 8. Function Evaluators ===
 function f(x) {
   return eval(input.value);
 }
+function f2(x, isYAxis, axisValue) {
+  if (!secondFuncInput.value.trim()) {
+    // If no second function, default to axis‐line value
+    return isYAxis ? axisValue : f(x);
+  }
+  try {
+    return eval(secondFuncInput.value);
+  } catch {
+    return isYAxis ? axisValue : f(x);
+  }
+}
 
-const uStart = -50;
-const uEnd = 50;
-const uSteps = (uEnd - uStart) * 25;
-const vSteps = 60;
-const uRange = uEnd - uStart;
-
-let mesh, redLineMesh, blueLineMesh;
-
+// === 9. Mesh Builder ===
 function buildMesh(angleDeg) {
-  if (mesh) {
-    scene.remove(mesh);
-    mesh.geometry.dispose();
-    mesh.material.dispose();
-  }
-  if (redLineMesh) {
-    scene.remove(redLineMesh);
-    redLineMesh.geometry.dispose();
-    redLineMesh.material.dispose();
-  }
-  if (blueLineMesh) {
-    scene.remove(blueLineMesh);
-    blueLineMesh.geometry.dispose();
-    blueLineMesh.material.dispose();
-  }
+  const uStart = parseFloat(xMinInput.value);
+  const uEnd   = parseFloat(xMaxInput.value);
+  if (isNaN(uStart) || isNaN(uEnd) || uStart === uEnd) return;
 
+  const uSteps = 400, vSteps = 120;
+  const uRange = uEnd - uStart;
   const angleLimit = (angleDeg / 360) * 2 * Math.PI;
-  const geometry = new THREE.BufferGeometry();
-  const vertices = [];
-  const indices = [];
 
+  const axisRaw = axisInput.value.trim();
+  let isYAxis = false;
+  let axisValue = 0;
+  if (axisRaw.startsWith("x")) {
+    isYAxis = true;
+    axisValue = parseFloat(axisRaw.split("=")[1].trim());
+  } else if (axisRaw.startsWith("y")) {
+    axisValue = parseFloat(axisRaw.split("=")[1].trim());
+  }
+
+  // Dispose previous objects
+  [mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine].forEach(obj => {
+    if (obj) {
+      scene.remove(obj);
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) obj.material.dispose();
+    }
+  });
+  domainLines.forEach(line => {
+    scene.remove(line);
+    if (line.geometry) line.geometry.dispose();
+    if (line.material) line.material.dispose();
+  });
+  domainLines = [];
+  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh = axisLine = null;
+
+  // === Red Function Line (f(x), always visible) ===
+  const redPts = [];
+  for (let i = 0; i <= 500; i++) {
+    const x = -50 + (i / 500) * 100;
+    redPts.push(new THREE.Vector3(x, f(x), 0));
+  }
+  redLineMesh = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(redPts),
+    new THREE.LineBasicMaterial({ color: 0xff0000 })
+  );
+  scene.add(redLineMesh);
+
+  // === Red Line for Second Function (f2(x), always visible) ===
+  const secondRedPts = [];
+  for (let i = 0; i <= 500; i++) {
+    const x = -50 + (i / 500) * 100;
+    secondRedPts.push(new THREE.Vector3(x, f2(x, isYAxis, axisValue), 0));
+  }
+  secondRedLineMesh = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(secondRedPts),
+    new THREE.LineBasicMaterial({ color: 0xff0000 })
+  );
+  scene.add(secondRedLineMesh);
+
+  // === Axis of Rotation Line (dashed) ===
+  const axisMat = new THREE.LineDashedMaterial({
+    color: 0xffa500,
+    dashSize: 0.5,
+    gapSize: 0.5,
+    linewidth: 2
+  });
+  const axisPts = isYAxis
+    ? [new THREE.Vector3(axisValue, -50, 0), new THREE.Vector3(axisValue, 50, 0)]
+    : [new THREE.Vector3(-50, axisValue, 0), new THREE.Vector3(50, axisValue, 0)];
+  axisLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(axisPts), axisMat);
+  axisLine.computeLineDistances();
+  scene.add(axisLine);
+
+  // === Domain‐Boundary Dashed Lines ===
+  const domainMat = new THREE.LineDashedMaterial({
+    color: 'pink',
+    dashSize: 0.2,
+    gapSize: 0.1,
+    linewidth: 1
+  });
+
+  [uStart, uEnd].forEach(u => {
+    const yFunc = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    if (isYAxis) {
+      // Horizontal dashed from axis to inner
+      const startH = new THREE.Vector3(axisValue, yInner, 0);
+      const endH   = new THREE.Vector3(u,       yInner, 0);
+      const geoH = new THREE.BufferGeometry().setFromPoints([startH, endH]);
+      const lineH = new THREE.Line(geoH, domainMat);
+      lineH.computeLineDistances();
+      scene.add(lineH);
+      domainLines.push(lineH);
+
+      // Vertical dashed from (u, yInner) to (u, yFunc)
+      const startV = new THREE.Vector3(u, yInner, 0);
+      const endV   = new THREE.Vector3(u, yFunc,  0);
+      const geoV = new THREE.BufferGeometry().setFromPoints([startV, endV]);
+      const lineV = new THREE.Line(geoV, domainMat);
+      lineV.computeLineDistances();
+      scene.add(lineV);
+      domainLines.push(lineV);
+    } else {
+      // Vertical dashed from axis to inner
+      const startV = new THREE.Vector3(u, axisValue, 0);
+      const endV   = new THREE.Vector3(u, yInner,   0);
+      const geoV = new THREE.BufferGeometry().setFromPoints([startV, endV]);
+      const lineV = new THREE.Line(geoV, domainMat);
+      lineV.computeLineDistances();
+      scene.add(lineV);
+      domainLines.push(lineV);
+
+      // Vertical dashed from (u, yInner) to (u, yFunc)
+      const startU = new THREE.Vector3(u, yInner, 0);
+      const endU   = new THREE.Vector3(u, yFunc,  0);
+      const geoU = new THREE.BufferGeometry().setFromPoints([startU, endU]);
+      const lineU = new THREE.Line(geoU, domainMat);
+      lineU.computeLineDistances();
+      scene.add(lineU);
+      domainLines.push(lineU);
+    }
+  });
+
+  // === If angle = 0, skip 3D solid and rotated lines ===
+  if (angleDeg === 0) return;
+
+  // === Generate Solid of Revolution ===
+  const vertices = [], indices = [];
   for (let i = 0; i <= uSteps; i++) {
     const u = uStart + (i / uSteps) * uRange;
-    const y0 = f(u);
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
     for (let j = 0; j <= vSteps; j++) {
       const v = (j / vSteps) * angleLimit;
-      const x = u;
-      const y = y0 * Math.cos(v);
-      const z = y0 * Math.sin(v);
-      vertices.push(x, y, z);
+      const pushPt = (r, yVal) => {
+        if (isYAxis) {
+          const dx = u - axisValue;
+          const x = axisValue + dx * r;
+          const y = yVal;
+          const z = dx * Math.sin(v);
+          vertices.push(x, y, z);
+        } else {
+          const dy = yVal - axisValue;
+          const x = u;
+          const y = axisValue + dy * r;
+          const z = dy * Math.sin(v);
+          vertices.push(x, y, z);
+        }
+      };
+      pushPt(Math.cos(v), yOuter);
+      pushPt(Math.cos(v), yInner);
     }
   }
 
+  const stride = (vSteps + 1) * 2;
   for (let i = 0; i < uSteps; i++) {
     for (let j = 0; j < vSteps; j++) {
-      const a = i * (vSteps + 1) + j;
-      const b = a + vSteps + 1;
-      const c = b + 1;
-      const d = a + 1;
+      const a = i * stride + j * 2;
+      const b = a + stride;
+      const c = b + 2;
+      const d = a + 2;
+      const a2 = a + 1, b2 = b + 1, c2 = c + 1, d2 = d + 1;
       indices.push(a, b, d, b, c, d);
+      indices.push(c2, b2, d2, b2, a2, d2);
     }
   }
 
+  const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
-  const material = new THREE.MeshStandardMaterial({ 
-    color: 0x0088ff, 
-    side: THREE.DoubleSide, 
-    transparent: true, 
-    opacity: 0.8 
-  });
-
-  mesh = new THREE.Mesh(geometry, material);
+  mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({
+    color: 0x0088ff,
+    side: THREE.DoubleSide,
+    shininess: 100,
+    transparent: true,
+    opacity: 0.9
+  }));
   mesh.frustumCulled = false;
   scene.add(mesh);
 
-  // Red function line
-  const curvePoints = [];
-  const blueCurvePoints = [];
-  const lineSteps = uSteps * 2;
-  for (let i = 0; i <= lineSteps; i++) {
-    const x = uStart + (i / lineSteps) * uRange;
+  // === Blue Rotated Curve for f(x) ===
+  const bluePts = [];
+  for (let i = 0; i <= uSteps * 2; i++) {
+    const x = uStart + (i / (uSteps * 2)) * uRange;
     const y = f(x);
-    curvePoints.push(new THREE.Vector3(x, y, 0));
-    blueCurvePoints.push(new THREE.Vector3(x, y * Math.cos(angleLimit), y * Math.sin(angleLimit)));
+    if (isYAxis) {
+      const dx = x - axisValue;
+      bluePts.push(new THREE.Vector3(
+        axisValue + dx * Math.cos(angleLimit),
+        y,
+        dx * Math.sin(angleLimit)
+      ));
+    } else {
+      const dy = y - axisValue;
+      bluePts.push(new THREE.Vector3(
+        x,
+        axisValue + dy * Math.cos(angleLimit),
+        dy * Math.sin(angleLimit)
+      ));
+    }
   }
-
-  const redPath = new THREE.CatmullRomCurve3(curvePoints, false, 'centripetal');
-  const redGeometry = new THREE.TubeGeometry(redPath, uSteps, 0.05, 12, false);
-  const redMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-  redLineMesh = new THREE.Mesh(redGeometry, redMaterial);
-  scene.add(redLineMesh);
-
-  const bluePath = new THREE.CatmullRomCurve3(blueCurvePoints, false, 'centripetal');
-  const blueGeometry = new THREE.TubeGeometry(bluePath, uSteps, 0.04, 12, false);
-  const blueMaterial = new THREE.MeshStandardMaterial({ color: 'blue' });
-  blueLineMesh = new THREE.Mesh(blueGeometry, blueMaterial);
+  blueLineMesh = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(bluePts),
+    new THREE.LineBasicMaterial({ color: 'blue' })
+  );
   scene.add(blueLineMesh);
+
+  // === Blue Rotated Curve for f2(x) ===
+  const secondBluePts = [];
+  for (let i = 0; i <= uSteps * 2; i++) {
+    const x = uStart + (i / (uSteps * 2)) * uRange;
+    const y = f2(x, isYAxis, axisValue);
+    if (isYAxis) {
+      const dx = x - axisValue;
+      secondBluePts.push(new THREE.Vector3(
+        axisValue + dx * Math.cos(angleLimit),
+        y,
+        dx * Math.sin(angleLimit)
+      ));
+    } else {
+      const dy = y - axisValue;
+      secondBluePts.push(new THREE.Vector3(
+        x,
+        axisValue + dy * Math.cos(angleLimit),
+        dy * Math.sin(angleLimit)
+      ));
+    }
+  }
+  secondBlueLineMesh = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(secondBluePts),
+    new THREE.LineBasicMaterial({ color: 'cyan' })
+  );
+  scene.add(secondBlueLineMesh);
 }
 
-input.addEventListener("change", () => buildMesh(parseFloat(slider.value)));
-slider.addEventListener('input', () => buildMesh(parseFloat(slider.value)));
-buildMesh(0);
+// === 10. Events ===
+slider.addEventListener("input", () => buildMesh(parseFloat(slider.value)));
+[input, xMinInput, xMaxInput, axisInput, secondFuncInput].forEach(el =>
+  el.addEventListener("change", () => buildMesh(parseFloat(slider.value)))
+);
 
-//                === 9. Animation Loop ===
+// === 11. Initial Render & Animation ===
+buildMesh(0);
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
   renderer.render(scene, camera);
 }
-
 animate();
