@@ -3,8 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
-
-// HTML
+// HTML Elements
 const slider = document.createElement("input");
 slider.type = "range";
 slider.min = 0;
@@ -23,31 +22,23 @@ input.style.top = "40px";
 input.style.left = "10px";
 document.body.appendChild(input);
 
-
-
 //                === 2. Scene Setup ===
 const scene = new THREE.Scene();
 
 //                === 3. Camera Setup ===
-const d = 5; // change as needed
+const d = 5;
 const aspect = window.innerWidth / window.innerHeight;
 const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -1000, 1000);
 camera.updateProjectionMatrix();
-camera.position.set(0, 0, 1);
+camera.position.set(0, 0, 10);
 
 //                === 4. Renderer Setup ===
-const renderer = new THREE.WebGLRenderer({
-  canvas: document.querySelector('#bg'),
-});
+const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#bg') });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 
 //                === 5. Lights ===
-// Ambient light for general illumination
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
-scene.add(ambientLight);
-
-// Directional light for shading and depth
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
 directionalLight.position.set(1000, 1000, 1000);
 directionalLight.target.position.set(0, 0, 0);
@@ -55,31 +46,30 @@ scene.add(directionalLight);
 scene.add(directionalLight.target);
 
 //                === 6. Helpers ===
-const size = 100;
-const gridSize = size;
-const gridDivisions = size;
+const gridSize = 100;
+const gridDivisions = 100;
 const gridColor = 0xeb4034;
 const centerColor = 0xffffff;
-
 const gridHelperXY = new THREE.GridHelper(gridSize, gridDivisions, gridColor, centerColor);
-const gridHelperXZ = new THREE.GridHelper(gridSize, gridDivisions, gridColor, centerColor);
-const gridHelperYZ = new THREE.GridHelper(gridSize, gridDivisions, gridColor, centerColor);
-
 gridHelperXY.material.opacity = 0.2;
-gridHelperXZ.material.opacity = 0.2;
-gridHelperYZ.material.opacity = 0.2;
-
 gridHelperXY.material.transparent = true;
-gridHelperXZ.material.transparent = true;
-gridHelperYZ.material.transparent = true;
-
-
-gridHelperXZ.rotation.x = -Math.PI/2;
-gridHelperYZ.rotation.z = Math.PI/2;
-
+gridHelperXY.rotation.x = Math.PI / 2;
 scene.add(gridHelperXY);
-scene.add(gridHelperXZ);
-scene.add(gridHelperYZ);
+
+// Center axes
+function createAxisLine(start, end, color) {
+  const material = new THREE.LineBasicMaterial({ color, linewidth: 4 });
+  const points = [start, end];
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  return new THREE.Line(geometry, material);
+}
+
+scene.add(createAxisLine(new THREE.Vector3(-gridSize / 2, 0, 0), new THREE.Vector3(gridSize / 2, 0, 0), 'green'));
+scene.add(createAxisLine(new THREE.Vector3(0, -gridSize / 2, 0), new THREE.Vector3(0, gridSize / 2, 0), 'green'));
+
+// Arrows
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 0), 10, 0xff00ff, 1, 0.1));
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 10, 0xffff00, 1, 0.1));
 
 //                === 7. Controls ===
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -87,7 +77,7 @@ controls.enableZoom = true;
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 
-//                === 8. Objects ===
+//                === 8. Function Graphing ===
 function f(x) {
   return eval(input.value);
 }
@@ -98,8 +88,7 @@ const uSteps = (uEnd - uStart) * 25;
 const vSteps = 60;
 const uRange = uEnd - uStart;
 
-let mesh;
-let redLineMesh;
+let mesh, redLineMesh, blueLineMesh;
 
 function buildMesh(angleDeg) {
   if (mesh) {
@@ -107,11 +96,15 @@ function buildMesh(angleDeg) {
     mesh.geometry.dispose();
     mesh.material.dispose();
   }
-
   if (redLineMesh) {
     scene.remove(redLineMesh);
     redLineMesh.geometry.dispose();
     redLineMesh.material.dispose();
+  }
+  if (blueLineMesh) {
+    scene.remove(blueLineMesh);
+    blueLineMesh.geometry.dispose();
+    blueLineMesh.material.dispose();
   }
 
   const angleLimit = (angleDeg / 360) * 2 * Math.PI;
@@ -122,7 +115,6 @@ function buildMesh(angleDeg) {
   for (let i = 0; i <= uSteps; i++) {
     const u = uStart + (i / uSteps) * uRange;
     const y0 = f(u);
-
     for (let j = 0; j <= vSteps; j++) {
       const v = (j / vSteps) * angleLimit;
       const x = u;
@@ -146,44 +138,48 @@ function buildMesh(angleDeg) {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
-  const material = new THREE.MeshStandardMaterial({ color: 0x0088ff, side: THREE.DoubleSide });
+  const material = new THREE.MeshStandardMaterial({ 
+    color: 0x0088ff, 
+    side: THREE.DoubleSide, 
+    transparent: true, 
+    opacity: 0.8 
+  });
+
   mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
   scene.add(mesh);
 
-  // Draw red function line
+  // Red function line
   const curvePoints = [];
+  const blueCurvePoints = [];
   const lineSteps = uSteps * 2;
   for (let i = 0; i <= lineSteps; i++) {
     const x = uStart + (i / lineSteps) * uRange;
     const y = f(x);
     curvePoints.push(new THREE.Vector3(x, y, 0));
+    blueCurvePoints.push(new THREE.Vector3(x, y * Math.cos(angleLimit), y * Math.sin(angleLimit)));
   }
 
-  const curvePath = new THREE.CatmullRomCurve3(curvePoints, false, 'centripetal');
-  const redGeometry = new THREE.TubeGeometry(curvePath, uSteps, 0.05, 12, false);
+  const redPath = new THREE.CatmullRomCurve3(curvePoints, false, 'centripetal');
+  const redGeometry = new THREE.TubeGeometry(redPath, uSteps, 0.05, 12, false);
   const redMaterial = new THREE.MeshStandardMaterial({ color: 0xff0000 });
   redLineMesh = new THREE.Mesh(redGeometry, redMaterial);
   scene.add(redLineMesh);
+
+  const bluePath = new THREE.CatmullRomCurve3(blueCurvePoints, false, 'centripetal');
+  const blueGeometry = new THREE.TubeGeometry(bluePath, uSteps, 0.04, 12, false);
+  const blueMaterial = new THREE.MeshStandardMaterial({ color: 'blue' });
+  blueLineMesh = new THREE.Mesh(blueGeometry, blueMaterial);
+  scene.add(blueLineMesh);
 }
 
-
-input.addEventListener("change", () => {
-  const angleDeg = parseFloat(slider.value);
-  buildMesh(angleDeg);
-});
-
-slider.addEventListener('input', () => {
-    const angleDeg = parseFloat(slider.value);
-    buildMesh(angleDeg);
-});
-
-buildMesh(0); // initial render
+input.addEventListener("change", () => buildMesh(parseFloat(slider.value)));
+slider.addEventListener('input', () => buildMesh(parseFloat(slider.value)));
+buildMesh(0);
 
 //                === 9. Animation Loop ===
 function animate() {
   requestAnimationFrame(animate);
-
   controls.update();
   renderer.render(scene, camera);
 }
