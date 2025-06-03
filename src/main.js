@@ -3,10 +3,25 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
-let mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine;
+// === 2. Global Variables ===
+let mesh,
+    redLineMesh,
+    secondRedLineMesh,
+    blueLineMesh,
+    secondBlueLineMesh,
+    axisLine,
+    pinkMesh,        // rotating ribbon
+    staticPinkMesh;  // static ribbon
 let domainLines = [];
 
-// === Input Elements ===
+// Camera‐animation state
+let isCameraAnimating = false;
+const cameraStartPos = new THREE.Vector3();
+const cameraEndPos = new THREE.Vector3();
+let animStartTime = 0;
+const animDuration = 500; // milliseconds
+
+// === 3. Input Elements ===
 const slider = document.createElement("input");
 slider.type = "range";
 slider.min = 0;
@@ -81,107 +96,104 @@ topBtn.style.top = "250px";
 topBtn.style.left = "10px";
 document.body.appendChild(topBtn);
 
-// === 2. Scene Setup ===
+// === 4. Scene & Camera Setup ===
 const scene = new THREE.Scene();
 
-// === 3. Camera Setup ===
 const d = 5;
 const aspect = window.innerWidth / window.innerHeight;
-const camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, -1000, 1000);
+const camera = new THREE.OrthographicCamera(
+  -d * aspect, d * aspect, d, -d, -1000, 1000
+);
 camera.position.set(0, 0, 10);
-camera.updateProjectionMatrix();
+camera.lookAt(0, 0, 0);
+
+// === 5. Renderer Setup (with Shadows) ===
+const renderer = new THREE.WebGLRenderer({
+  canvas: document.querySelector('#bg'),
+  antialias: true
+});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x263238);               // dark background
+renderer.shadowMap.enabled = true;               // enable shadows
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 window.addEventListener('resize', () => {
-  const aspect = window.innerWidth / window.innerHeight;
-  camera.left = -d * aspect;
-  camera.right = d * aspect;
-  camera.top = d;
+  const newAspect = window.innerWidth / window.innerHeight;
+  camera.left   = -d * newAspect;
+  camera.right  =  d * newAspect;
+  camera.top    =  d;
   camera.bottom = -d;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// === 4. Renderer Setup ===
-const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#bg'), antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+// === 6. Lights ===
+{
+  // Ambient Light
+  const ambient = new THREE.AmbientLight(0xffffff, 1.5);
+  scene.add(ambient);
 
-// === 5. Lights ===
-scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-directionalLight.position.set(1000, 1000, 1000);
-scene.add(directionalLight);
-scene.add(directionalLight.target);
+  // Directional Light (casts shadows)
+  const dirLight = new THREE.DirectionalLight(0xffffff, 3);
+  dirLight.position.set(5, 10, 7.5);
+  dirLight.castShadow = true;
 
-const pointLight = new THREE.PointLight(0xffffff, 0.6);
-pointLight.position.set(10, 10, 20);
-scene.add(pointLight);
+  // Configure shadow camera for sharper shadows
+  dirLight.shadow.camera.left   = -2;
+  dirLight.shadow.camera.right  = +2;
+  dirLight.shadow.camera.top    = +2;
+  dirLight.shadow.camera.bottom = -2;
+  dirLight.shadow.mapSize.width  = 1024;
+  dirLight.shadow.mapSize.height = 1024;
+  dirLight.shadow.radius = 4; // soften edges
 
-// === 6. Helpers ===
+  scene.add(dirLight);
+}
+
+// === 7. Grid Helper (XY plane) ===
 const gridHelperXY = new THREE.GridHelper(100, 100, 0xeb4034, 0xffffff);
-gridHelperXY.material.opacity = 1;
+gridHelperXY.material.opacity = 0.2;
 gridHelperXY.material.transparent = true;
-gridHelperXY.rotation.x = Math.PI / 2;
+gridHelperXY.rotation.x = Math.PI / 2; // rotate from XZ into XY
 scene.add(gridHelperXY);
 
-// === 7. Controls ===
+// === 8. Orbit Controls ===
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableZoom = true;
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
 
-// === 8. Camera Direction Lines ===
-// Add two purple lines from the origin extending 10 units toward and away from the camera’s initial position
-const camDir = new THREE.Vector3().copy(camera.position).normalize();
-const pointTowards = camDir.clone().multiplyScalar(10);
-const pointAway = camDir.clone().multiplyScalar(-10);
-
-const purpleMaterial = new THREE.LineBasicMaterial({ color: 'purple' });
-
-const geometryTow = new THREE.BufferGeometry().setFromPoints([
-  new THREE.Vector3(0, 0, 0),
-  pointTowards
-]);
-const lineTow = new THREE.Line(geometryTow, purpleMaterial);
-scene.add(lineTow);
-
-const geometryAway = new THREE.BufferGeometry().setFromPoints([
-  new THREE.Vector3(0, 0, 0),
-  pointAway
-]);
-const lineAway = new THREE.Line(geometryAway, purpleMaterial);
-scene.add(lineAway);
-
-// === 9. Camera Animation State ===
-let isCameraAnimating = false;
-const cameraStartPos = new THREE.Vector3();
-const cameraEndPos = new THREE.Vector3();
-let animStartTime = 0;
-const animDuration = 500; // milliseconds
-
-// Helper to start camera animation
-function animateCameraTo(x, y, z) {
-  cameraStartPos.copy(camera.position);
-  cameraEndPos.set(x, y, z);
-  animStartTime = performance.now();
-  isCameraAnimating = true;
+// === 9. Helpers: Create PBR Materials ===
+function createRibbonMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xE91E63, 
+    metalness: 0.1,
+    roughness: 0.75,
+    transparent: true,
+    opacity: 1,
+    side: THREE.DoubleSide,
+    clipShadows: true,
+    shadowSide: THREE.DoubleSide
+  });
 }
 
-// Button event listeners (use animated camera)
-frontBtn.addEventListener("click", () => {
-  // front view → positive Z
-  animateCameraTo(0, 0, 10);
-});
+function createSolidMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0xFFC107,       
+    metalness: 0.1,
+    roughness: 0.75,
+    transparent: true,
+    opacity: 1,
+    side: THREE.DoubleSide,
+    clipShadows: true,
+    shadowSide: THREE.DoubleSide
+  });
+}
 
-sideBtn.addEventListener("click", () => {
-  // side view → positive X
-  animateCameraTo(10, 0, 0);
-});
-
-topBtn.addEventListener("click", () => {
-  // top‐down → positive Y
-  animateCameraTo(0, 10, 0);
-});
+function createLineMaterial(colorString) {
+  return new THREE.LineBasicMaterial({ color: colorString });
+}
 
 // === 10. Function Evaluators ===
 function f(x) {
@@ -189,26 +201,50 @@ function f(x) {
 }
 function f2(x, isYAxis, axisValue) {
   if (!secondFuncInput.value.trim()) {
-    return isYAxis ? axisValue : f(x);
+    return axisValue;
   }
   try {
     return eval(secondFuncInput.value);
   } catch {
-    return isYAxis ? axisValue : f(x);
+    return axisValue;
   }
 }
 
-// === 11. Mesh Builder ===
+// === 11. Camera Animation Helper ===
+function animateCameraTo(x, y, z) {
+  cameraStartPos.copy(camera.position);
+  cameraEndPos.set(x, y, z);
+  animStartTime = performance.now();
+  isCameraAnimating = true;
+}
+
+// Hook up view buttons:
+frontBtn.addEventListener("click", () => {
+  // Front view → positive Z
+  animateCameraTo(0, 0, 10);
+});
+sideBtn.addEventListener("click", () => {
+  // Side view → positive X
+  animateCameraTo(10, 0, 0);
+});
+topBtn.addEventListener("click", () => {
+  // Top‐down → positive Y
+  animateCameraTo(0, 10, 0);
+});
+
+// === 12. Mesh Builder ===
 function buildMesh(angleDeg) {
   const uStart = parseFloat(xMinInput.value);
   const uEnd   = parseFloat(xMaxInput.value);
   if (isNaN(uStart) || isNaN(uEnd) || uStart === uEnd) return;
 
-  const uSteps = 800, vSteps = 120;
+  const uSteps = 200;
+  const vSteps = 120;
   const uStepsRed = 8000;
   const uRange = uEnd - uStart;
   const angleLimit = (angleDeg / 360) * 2 * Math.PI;
 
+  // Parse axis ("x = ..." or "y = ...")
   const axisRaw = axisInput.value.trim();
   let isYAxis = false;
   let axisValue = 0;
@@ -219,8 +255,8 @@ function buildMesh(angleDeg) {
     axisValue = parseFloat(axisRaw.split("=")[1].trim());
   }
 
-  // Dispose previous objects
-  [mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine].forEach(obj => {
+  // Dispose previous objects (including staticPinkMesh)
+  [mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine, pinkMesh, staticPinkMesh].forEach(obj => {
     if (obj) {
       scene.remove(obj);
       if (obj.geometry) obj.geometry.dispose();
@@ -233,9 +269,9 @@ function buildMesh(angleDeg) {
     if (line.material) line.material.dispose();
   });
   domainLines = [];
-  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh = axisLine = null;
+  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh = axisLine = pinkMesh = staticPinkMesh = null;
 
-  // === Red Function Line (f(x), always visible) ===
+  // === Red Function Line (f(x)) ===
   const redPts = [];
   for (let i = 0; i <= uStepsRed; i++) {
     const x = -50 + (i / uStepsRed) * 100;
@@ -243,11 +279,11 @@ function buildMesh(angleDeg) {
   }
   redLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(redPts),
-    new THREE.LineBasicMaterial({ color: 0xfc2803 })
+    createLineMaterial("#fc2803")
   );
   scene.add(redLineMesh);
 
-  // === Red Line for Second Function (f2(x), always visible) ===
+  // === Red Line for f₂(x) ===
   const secondRedPts = [];
   for (let i = 0; i <= uStepsRed; i++) {
     const x = -50 + (i / uStepsRed) * 100;
@@ -255,7 +291,7 @@ function buildMesh(angleDeg) {
   }
   secondRedLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(secondRedPts),
-    new THREE.LineBasicMaterial({ color: 0xfc2803 })
+    createLineMaterial("#fc2803")
   );
   scene.add(secondRedLineMesh);
 
@@ -280,7 +316,6 @@ function buildMesh(angleDeg) {
     gapSize: 0.1,
     linewidth: 1
   });
-
   [uStart, uEnd].forEach(u => {
     const yFunc = f(u);
     const yInner = f2(u, isYAxis, axisValue);
@@ -324,10 +359,7 @@ function buildMesh(angleDeg) {
     }
   });
 
-  // === If angle = 0, skip 3D solid and rotated lines ===
-  if (angleDeg === 0) return;
-
-  // === Generate Solid of Revolution ===
+  // === Generate Full Solid of Revolution ===
   const vertices = [], indices = [];
   for (let i = 0; i <= uSteps; i++) {
     const u = uStart + (i / uSteps) * uRange;
@@ -364,8 +396,12 @@ function buildMesh(angleDeg) {
       const c = b + 2;
       const d = a + 2;
       const a2 = a + 1, b2 = b + 1, c2 = c + 1, d2 = d + 1;
-      indices.push(a, b, d, b, c, d);
-      indices.push(c2, b2, d2, b2, a2, d2);
+      // Outer surface
+      indices.push(a, b, d);
+      indices.push(b, c, d);
+      // Inner surface
+      indices.push(c2, b2, d2);
+      indices.push(b2, a2, d2);
     }
   }
 
@@ -374,14 +410,9 @@ function buildMesh(angleDeg) {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
-  mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({
-    color: 0x0088ff,
-    side: THREE.DoubleSide,
-    shininess: 100,
-    transparent: true,
-    opacity: 0.8
-  }));
-  mesh.frustumCulled = false;
+  mesh = new THREE.Mesh(geometry, createSolidMaterial());
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   scene.add(mesh);
 
   // === Blue Rotated Curve for f(x) ===
@@ -407,11 +438,11 @@ function buildMesh(angleDeg) {
   }
   blueLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(bluePts),
-    new THREE.LineBasicMaterial({ color: 'blue' })
+    createLineMaterial("blue")
   );
   scene.add(blueLineMesh);
 
-  // === Blue Rotated Curve for f2(x) ===
+  // === Blue Rotated Curve for f₂(x) ===
   const secondBluePts = [];
   for (let i = 0; i <= uSteps * 2; i++) {
     const x = uStart + (i / (uSteps * 2)) * uRange;
@@ -434,44 +465,128 @@ function buildMesh(angleDeg) {
   }
   secondBlueLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(secondBluePts),
-    new THREE.LineBasicMaterial({ color: 'cyan' })
+    createLineMaterial("cyan")
   );
   scene.add(secondBlueLineMesh);
+
+  // === Rotating PINK RIBBON ===
+  const ribbonVerts = [];
+  const ribbonIndices = [];
+  for (let i = 0; i <= uSteps; i++) {
+    const u = uStart + (i / uSteps) * uRange;
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    if (isYAxis) {
+      const dx = u - axisValue;
+      const xO = axisValue + dx * Math.cos(angleLimit);
+      const yO = yOuter;
+      const zO = dx * Math.sin(angleLimit);
+      const xI = axisValue + dx * Math.cos(angleLimit);
+      const yI = yInner;
+      const zI = dx * Math.sin(angleLimit);
+      ribbonVerts.push(xO, yO, zO, xI, yI, zI);
+    } else {
+      const dyO = yOuter - axisValue;
+      const xO = u;
+      const yO = axisValue + dyO * Math.cos(angleLimit);
+      const zO = dyO * Math.sin(angleLimit);
+      const dyI = yInner - axisValue;
+      const xI = u;
+      const yI = axisValue + dyI * Math.cos(angleLimit);
+      const zI = dyI * Math.sin(angleLimit);
+      ribbonVerts.push(xO, yO, zO, xI, yI, zI);
+    }
+  }
+  for (let i = 0; i < uSteps; i++) {
+    const a = 2 * i;
+    const b = 2 * i + 1;
+    const c = 2 * (i + 1);
+    const d = 2 * (i + 1) + 1;
+    ribbonIndices.push(a, c, b, b, c, d);
+  }
+  const ribbonGeometry = new THREE.BufferGeometry();
+  ribbonGeometry.setAttribute('position', new THREE.Float32BufferAttribute(ribbonVerts, 3));
+  ribbonGeometry.setIndex(ribbonIndices);
+  ribbonGeometry.computeVertexNormals();
+
+  pinkMesh = new THREE.Mesh(ribbonGeometry, createRibbonMaterial());
+  pinkMesh.castShadow = true;
+  pinkMesh.receiveShadow = true;
+  scene.add(pinkMesh);
+
+  // === STATIC PINK RIBBON (angle = 0) ===
+  const ribbonVertsStatic = [];
+  const ribbonIndicesStatic = [];
+  for (let i = 0; i <= uSteps; i++) {
+    const u = uStart + (i / uSteps) * uRange;
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    // angleLimit = 0 → cos(0)=1, sin(0)=0
+    if (isYAxis) {
+      const dx = u - axisValue;
+      const xO = axisValue + dx * 1;
+      const yO = yOuter;
+      const zO = 0;
+      const xI = axisValue + dx * 1;
+      const yI = yInner;
+      const zI = 0;
+      ribbonVertsStatic.push(xO, yO, zO, xI, yI, zI);
+    } else {
+      const dyO = yOuter - axisValue;
+      const xO = u;
+      const yO = axisValue + dyO * 1;
+      const zO = 0;
+      const dyI = yInner - axisValue;
+      const xI = u;
+      const yI = axisValue + dyI * 1;
+      const zI = 0;
+      ribbonVertsStatic.push(xO, yO, zO, xI, yI, zI);
+    }
+  }
+  for (let i = 0; i < uSteps; i++) {
+    const a = 2 * i;
+    const b = 2 * i + 1;
+    const c = 2 * (i + 1);
+    const d = 2 * (i + 1) + 1;
+    ribbonIndicesStatic.push(a, c, b, b, c, d);
+  }
+  const ribbonGeometryStatic = new THREE.BufferGeometry();
+  ribbonGeometryStatic.setAttribute('position', new THREE.Float32BufferAttribute(ribbonVertsStatic, 3));
+  ribbonGeometryStatic.setIndex(ribbonIndicesStatic);
+  ribbonGeometryStatic.computeVertexNormals();
+
+  staticPinkMesh = new THREE.Mesh(ribbonGeometryStatic, createRibbonMaterial());
+  staticPinkMesh.castShadow = true;
+  staticPinkMesh.receiveShadow = true;
+  scene.add(staticPinkMesh);
 }
 
-// === 12. Events ===
+// === 13. Events ===
 slider.addEventListener("input", () => buildMesh(parseFloat(slider.value)));
 [input, xMinInput, xMaxInput, axisInput, secondFuncInput].forEach(el =>
   el.addEventListener("change", () => buildMesh(parseFloat(slider.value)))
 );
 
-// === 13. Initial Render & Animation ===
+// === 14. Initial Render & Animation ===
 buildMesh(0);
 
 function animate() {
   requestAnimationFrame(animate);
 
+  // Smooth camera interpolation:
   if (isCameraAnimating) {
     const now = performance.now();
     const elapsed = now - animStartTime;
     const t = Math.min(elapsed / animDuration, 1);
 
-    // interpolate position
     camera.position.lerpVectors(cameraStartPos, cameraEndPos, t);
-
-    // always look at origin
     camera.up.set(0, 1, 0);
     camera.lookAt(0, 0, 0);
-
-    // update OrbitControls target
     controls.target.set(0, 0, 0);
 
     if (t >= 1) {
-      // Once animation finishes, clear any residual momentum
-      controls.enableDamping = false;
-      controls.update();
-      controls.enableDamping = true;
-
       isCameraAnimating = false;
     }
   }
