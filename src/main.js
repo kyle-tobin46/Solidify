@@ -10,11 +10,13 @@ let mesh,
     blueLineMesh,
     secondBlueLineMesh,
     axisLine,
-    pinkMesh,        // rotating ribbon
-    staticPinkMesh;  // static ribbon
+    pinkMesh,        // rotating ribbon at current angle
+    staticPinkMesh,  // ribbon at angle = 0
+    capMeshStart,    // new blue end-cap at x = uStart
+    capMeshEnd;      // new blue end-cap at x = uEnd
 let domainLines = [];
 
-// Camera‐animation state
+// Camera-animation state
 let isCameraAnimating = false;
 const cameraStartPos = new THREE.Vector3();
 const cameraEndPos = new THREE.Vector3();
@@ -71,7 +73,7 @@ document.body.appendChild(axisInput);
 
 const secondFuncInput = document.createElement("input");
 secondFuncInput.type = "text";
-// Optional second function; if blank, it will default to the axis‐value
+// Optional second function; if blank, it will default to the axis-value
 secondFuncInput.value = "";
 secondFuncInput.style.position = "absolute";
 secondFuncInput.style.top = "160px";
@@ -172,7 +174,7 @@ controls.dampingFactor = 0.1;
 // === 9. Helpers: Create PBR Materials ===
 function createRibbonMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xE91E63,
+    color: 0xE91E63,      // pink
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -185,7 +187,20 @@ function createRibbonMaterial() {
 
 function createSolidMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xFFC107,
+    color: 0xFFC107,      // yellow
+    metalness: 0.1,
+    roughness: 0.75,
+    transparent: true,
+    opacity: 1,
+    side: THREE.DoubleSide,
+    clipShadows: true,
+    shadowSide: THREE.DoubleSide
+  });
+}
+
+function createBlueMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0x0288D1,      // blue
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -282,7 +297,7 @@ function f(x) {
   }
 }
 
-// Evaluator for the second function (cyan/red₂), or default to the axis‐value if blank/invalid
+// Evaluator for the second function (cyan/red₂), or default to the axis-value if blank/invalid
 function f2(x, isYAxis, axisValue) {
   const raw = secondFuncInput.value.trim();
   if (!raw) {
@@ -339,8 +354,11 @@ function buildMesh(angleDeg) {
     axisValue = parseFloat(axisRaw.split("=")[1]);
   }
 
-  // Dispose previous objects (including staticPinkMesh)
-  [mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine, pinkMesh, staticPinkMesh].forEach(obj => {
+  // Dispose previous objects (including end-caps)
+  [
+    mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh,
+    axisLine, pinkMesh, staticPinkMesh, capMeshStart, capMeshEnd
+  ].forEach(obj => {
     if (obj) {
       scene.remove(obj);
       if (obj.geometry) obj.geometry.dispose();
@@ -353,7 +371,8 @@ function buildMesh(angleDeg) {
     if (line.material) line.material.dispose();
   });
   domainLines = [];
-  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh = axisLine = pinkMesh = staticPinkMesh = null;
+  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh =
+  axisLine = pinkMesh = staticPinkMesh = capMeshStart = capMeshEnd = null;
 
   // === Red Function Line (f(x)) ===
   // Always draw from x = -50 to +50 for visibility
@@ -396,7 +415,7 @@ function buildMesh(angleDeg) {
   axisLine.computeLineDistances();
   scene.add(axisLine);
 
-  // === Domain‐Boundary Dashed Lines ===
+  // === Domain-Boundary Dashed Lines ===
   const domainMat = new THREE.LineDashedMaterial({
     color: 'pink',
     dashSize: 0.2,
@@ -556,7 +575,7 @@ function buildMesh(angleDeg) {
   );
   scene.add(secondBlueLineMesh);
 
-  // === Rotating PINK RIBBON ===
+  // === Rotating PINK RIBBON (angle > 0) ===
   const ribbonVerts = [];
   const ribbonIndices = [];
   for (let i = 0; i <= uSteps; i++) {
@@ -648,6 +667,111 @@ function buildMesh(angleDeg) {
   staticPinkMesh.castShadow = true;
   staticPinkMesh.receiveShadow = true;
   scene.add(staticPinkMesh);
+
+  // === NEW: BLUE END-CAP at x = uStart ===
+  {
+    const capVerts = [];
+    const capIndices = [];
+    const u = uStart;
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    for (let j = 0; j <= vSteps; j++) {
+      const v = (j / vSteps) * angleLimit;
+      if (isYAxis) {
+        // rotating around vertical line x = axisValue,
+        // so at x = u, dx = u - axisValue
+        const dx = u - axisValue;
+        // Outer edge
+        const xO = axisValue + dx * Math.cos(v);
+        const yO = yOuter;
+        const zO = dx * Math.sin(v);
+        // Inner edge
+        const xI = axisValue + dx * Math.cos(v);
+        const yI = yInner;
+        const zI = dx * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      } else {
+        // rotating around horizontal line y = axisValue
+        const dyOuter = yOuter - axisValue;
+        const xO = u;
+        const yO = axisValue + dyOuter * Math.cos(v);
+        const zO = dyOuter * Math.sin(v);
+        const dyInner = yInner - axisValue;
+        const xI = u;
+        const yI = axisValue + dyInner * Math.cos(v);
+        const zI = dyInner * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      }
+    }
+    for (let j = 0; j < vSteps; j++) {
+      const a = 2 * j;
+      const b = 2 * j + 1;
+      const c = 2 * (j + 1);
+      const d = 2 * (j + 1) + 1;
+      capIndices.push(a, c, b, b, c, d);
+    }
+    const capGeo = new THREE.BufferGeometry();
+    capGeo.setAttribute('position', new THREE.Float32BufferAttribute(capVerts, 3));
+    capGeo.setIndex(capIndices);
+    capGeo.computeVertexNormals();
+
+    capMeshStart = new THREE.Mesh(capGeo, createBlueMaterial());
+    capMeshStart.castShadow = true;
+    capMeshStart.receiveShadow = true;
+    scene.add(capMeshStart);
+  }
+
+  // === NEW: BLUE END-CAP at x = uEnd ===
+  {
+    const capVerts = [];
+    const capIndices = [];
+    const u = uEnd;
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    for (let j = 0; j <= vSteps; j++) {
+      const v = (j / vSteps) * angleLimit;
+      if (isYAxis) {
+        const dx = u - axisValue;
+        // Outer edge
+        const xO = axisValue + dx * Math.cos(v);
+        const yO = yOuter;
+        const zO = dx * Math.sin(v);
+        // Inner edge
+        const xI = axisValue + dx * Math.cos(v);
+        const yI = yInner;
+        const zI = dx * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      } else {
+        const dyOuter = yOuter - axisValue;
+        const xO = u;
+        const yO = axisValue + dyOuter * Math.cos(v);
+        const zO = dyOuter * Math.sin(v);
+        const dyInner = yInner - axisValue;
+        const xI = u;
+        const yI = axisValue + dyInner * Math.cos(v);
+        const zI = dyInner * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      }
+    }
+    for (let j = 0; j < vSteps; j++) {
+      const a = 2 * j;
+      const b = 2 * j + 1;
+      const c = 2 * (j + 1);
+      const d = 2 * (j + 1) + 1;
+      capIndices.push(a, c, b, b, c, d);
+    }
+    const capGeo = new THREE.BufferGeometry();
+    capGeo.setAttribute('position', new THREE.Float32BufferAttribute(capVerts, 3));
+    capGeo.setIndex(capIndices);
+    capGeo.computeVertexNormals();
+
+    capMeshEnd = new THREE.Mesh(capGeo, createBlueMaterial());
+    capMeshEnd.castShadow = true;
+    capMeshEnd.receiveShadow = true;
+    scene.add(capMeshEnd);
+  }
 }
 
 // === 14. Events ===
