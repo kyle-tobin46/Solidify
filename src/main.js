@@ -10,11 +10,13 @@ let mesh,
     blueLineMesh,
     secondBlueLineMesh,
     axisLine,
-    pinkMesh,        // rotating ribbon
-    staticPinkMesh;  // static ribbon
+    pinkMesh,        // rotating ribbon at current angle
+    staticPinkMesh,  // ribbon at angle = 0
+    capMeshStart,    // new blue end-cap at x = uStart
+    capMeshEnd;      // new blue end-cap at x = uEnd
 let domainLines = [];
 
-// Camera‐animation state
+// Camera-animation state
 let isCameraAnimating = false;
 const cameraStartPos = new THREE.Vector3();
 const cameraEndPos = new THREE.Vector3();
@@ -33,45 +35,50 @@ slider.style.left = "10px";
 document.body.appendChild(slider);
 
 const input = document.createElement("input");
+// Now we expect “y=…” or “x=…”; default to “y=sin(x)”
+input.value = "y=sin(x)";
 input.type = "text";
-input.value = "Math.sin(x)";
 input.style.position = "absolute";
 input.style.top = "40px";
 input.style.left = "10px";
 document.body.appendChild(input);
 
 const xMinInput = document.createElement("input");
-xMinInput.type = "number";
+xMinInput.type = "text";  // allow expressions, not just numbers
 xMinInput.value = "-1";
 xMinInput.style.position = "absolute";
 xMinInput.style.top = "70px";
 xMinInput.style.left = "10px";
+xMinInput.placeholder = "x min (e.g. -pi/2)";
 document.body.appendChild(xMinInput);
 
 const xMaxInput = document.createElement("input");
-xMaxInput.type = "number";
+xMaxInput.type = "text";  // allow expressions, not just numbers
 xMaxInput.value = "1";
 xMaxInput.style.position = "absolute";
 xMaxInput.style.top = "100px";
 xMaxInput.style.left = "10px";
+xMaxInput.placeholder = "x max (e.g. pi/2)";
 document.body.appendChild(xMaxInput);
 
 const axisInput = document.createElement("input");
+// We expect “y=0” or “x=0”
+axisInput.value = "y=0";
 axisInput.type = "text";
-axisInput.value = "y = 0";
 axisInput.style.position = "absolute";
 axisInput.style.top = "130px";
 axisInput.style.left = "10px";
-axisInput.placeholder = "axis of rotation";
+axisInput.placeholder = "axis of rotation (e.g. y=0 or x=2)";
 document.body.appendChild(axisInput);
 
 const secondFuncInput = document.createElement("input");
 secondFuncInput.type = "text";
+// Optional second function; if blank, it will default to the axis-value
 secondFuncInput.value = "";
 secondFuncInput.style.position = "absolute";
 secondFuncInput.style.top = "160px";
 secondFuncInput.style.left = "10px";
-secondFuncInput.placeholder = "second function (optional)";
+secondFuncInput.placeholder = "second function (optional, e.g. y=x^2)";
 document.body.appendChild(secondFuncInput);
 
 // === Buttons for Camera Views ===
@@ -167,7 +174,7 @@ controls.dampingFactor = 0.1;
 // === 9. Helpers: Create PBR Materials ===
 function createRibbonMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xE91E63, 
+    color: 0xE91E63,      // pink
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -180,7 +187,20 @@ function createRibbonMaterial() {
 
 function createSolidMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xFFC107,       
+    color: 0xFFC107,      // yellow
+    metalness: 0.1,
+    roughness: 0.75,
+    transparent: true,
+    opacity: 1,
+    side: THREE.DoubleSide,
+    clipShadows: true,
+    shadowSide: THREE.DoubleSide
+  });
+}
+
+function createBlueMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0x0288D1,      // blue
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -195,22 +215,103 @@ function createLineMaterial(colorString) {
   return new THREE.LineBasicMaterial({ color: colorString });
 }
 
-// === 10. Function Evaluators ===
-function f(x) {
-  return eval(input.value);
+// === 10. Value Parsing Helper ===
+// Converts a text expression (e.g. "-pi/2", "sin(pi/4)+1", "3^2") into a number.
+//  - Replaces ^→**, prefixes math functions with Math., replaces pi/e.
+function parseValue(raw) {
+  let s = raw.trim().replace(/\s+/g, '');
+  if (s === '') return NaN;
+  // Replace ^ with **
+  s = s.replace(/\^/g, '**');
+  // Prefix math functions
+  s = s.replace(
+    /\b(sin|cos|tan|asin|acos|atan|sqrt|log|exp|abs)\b/gi,
+    match => 'Math.' + match.toLowerCase()
+  );
+  // Replace pi → Math.PI
+  s = s.replace(/\bpi\b/gi, 'Math.PI');
+  // Replace e → Math.E
+  s = s.replace(/\be\b/gi, 'Math.E');
+  try {
+    return eval(s);
+  } catch {
+    return NaN;
+  }
 }
+
+// === 11. Equation Parsing & Evaluators ===
+// This helper turns something like “y=sin(x^2)” or “y=4” or “x=2y” into a valid JS expression in terms of x.
+//  - If LHS is “y=”, we simply grab the RHS.
+//  - If LHS is “x=...y” (a simple linear case), we solve for y = x/N if RHS matches N*y.
+//  - Replaces ^ → **, prefixes common math functions with Math., and replaces pi/e with Math.PI/Math.E.
+function parseEquation(equationRaw) {
+  let s = equationRaw.trim().replace(/\s+/g, ''); // remove all whitespace
+  if (!s.includes('=')) {
+    // If no “=”, assume “y=” + that
+    s = 'y=' + s;
+  }
+  const [lhs, rhs] = s.split('=');
+  let expr = '';
+  if (lhs.toLowerCase() === 'y') {
+    // “y=...” → just grab RHS
+    expr = rhs;
+  } else if (lhs.toLowerCase() === 'x') {
+    // “x=...y” → solve for y if of form “x=N*y”
+    const m = rhs.match(/^([0-9]*\.?[0-9]+)\*?y$/i);
+    if (m) {
+      const coef = parseFloat(m[1]);
+      expr = `(x/${coef})`;
+    } else {
+      if (rhs.toLowerCase() === 'y') {
+        expr = 'x';
+      } else {
+        // Fallback: treat RHS as a function of x
+        expr = rhs;
+      }
+    }
+  } else {
+    // Neither “y” nor “x” on LHS → treat entire string as “y=...”
+    expr = s;
+  }
+  // Replace ^ with **
+  expr = expr.replace(/\^/g, '**');
+  // Prefix math functions
+  expr = expr.replace(
+    /\b(sin|cos|tan|asin|acos|atan|sqrt|log|exp|abs)\b/gi,
+    match => 'Math.' + match.toLowerCase()
+  );
+  // Replace pi → Math.PI
+  expr = expr.replace(/\bpi\b/gi, 'Math.PI');
+  // Replace e → Math.E
+  expr = expr.replace(/\be\b/gi, 'Math.E');
+  return expr;
+}
+
+// Evaluator for the first function (red), always in terms of x
+function f(x) {
+  try {
+    const parsed = parseEquation(input.value);
+    return eval(parsed);
+  } catch {
+    return NaN;
+  }
+}
+
+// Evaluator for the second function (cyan/red₂), or default to the axis-value if blank/invalid
 function f2(x, isYAxis, axisValue) {
-  if (!secondFuncInput.value.trim()) {
+  const raw = secondFuncInput.value.trim();
+  if (!raw) {
     return axisValue;
   }
   try {
-    return eval(secondFuncInput.value);
+    const parsed2 = parseEquation(raw);
+    return eval(parsed2);
   } catch {
     return axisValue;
   }
 }
 
-// === 11. Camera Animation Helper ===
+// === 12. Camera Animation Helper ===
 function animateCameraTo(x, y, z) {
   cameraStartPos.copy(camera.position);
   cameraEndPos.set(x, y, z);
@@ -220,22 +321,20 @@ function animateCameraTo(x, y, z) {
 
 // Hook up view buttons:
 frontBtn.addEventListener("click", () => {
-  // Front view → positive Z
   animateCameraTo(0, 0, 10);
 });
 sideBtn.addEventListener("click", () => {
-  // Side view → positive X
   animateCameraTo(10, 0, 0);
 });
 topBtn.addEventListener("click", () => {
-  // Top‐down → positive Y
   animateCameraTo(0, 10, 0);
 });
 
-// === 12. Mesh Builder ===
+// === 13. Mesh Builder ===
 function buildMesh(angleDeg) {
-  const uStart = parseFloat(xMinInput.value);
-  const uEnd   = parseFloat(xMaxInput.value);
+  // Parse domain endpoints via parseValue (supports pi, sin, ^, etc.)
+  const uStart = parseValue(xMinInput.value);
+  const uEnd   = parseValue(xMaxInput.value);
   if (isNaN(uStart) || isNaN(uEnd) || uStart === uEnd) return;
 
   const uSteps = 200;
@@ -244,19 +343,22 @@ function buildMesh(angleDeg) {
   const uRange = uEnd - uStart;
   const angleLimit = (angleDeg / 360) * 2 * Math.PI;
 
-  // Parse axis ("x = ..." or "y = ...")
-  const axisRaw = axisInput.value.trim();
+  // Parse axis ("x=..." or "y=...")
+  const axisRaw = axisInput.value.trim().replace(/\s+/g, '');
   let isYAxis = false;
   let axisValue = 0;
-  if (axisRaw.startsWith("x")) {
+  if (axisRaw.toLowerCase().startsWith("x=")) {
     isYAxis = true;
-    axisValue = parseFloat(axisRaw.split("=")[1].trim());
-  } else if (axisRaw.startsWith("y")) {
-    axisValue = parseFloat(axisRaw.split("=")[1].trim());
+    axisValue = parseFloat(axisRaw.split("=")[1]);
+  } else if (axisRaw.toLowerCase().startsWith("y=")) {
+    axisValue = parseFloat(axisRaw.split("=")[1]);
   }
 
-  // Dispose previous objects (including staticPinkMesh)
-  [mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh, axisLine, pinkMesh, staticPinkMesh].forEach(obj => {
+  // Dispose previous objects (including end-caps)
+  [
+    mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh,
+    axisLine, pinkMesh, staticPinkMesh, capMeshStart, capMeshEnd
+  ].forEach(obj => {
     if (obj) {
       scene.remove(obj);
       if (obj.geometry) obj.geometry.dispose();
@@ -269,13 +371,16 @@ function buildMesh(angleDeg) {
     if (line.material) line.material.dispose();
   });
   domainLines = [];
-  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh = axisLine = pinkMesh = staticPinkMesh = null;
+  mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh =
+  axisLine = pinkMesh = staticPinkMesh = capMeshStart = capMeshEnd = null;
 
   // === Red Function Line (f(x)) ===
+  // Always draw from x = -50 to +50 for visibility
   const redPts = [];
   for (let i = 0; i <= uStepsRed; i++) {
     const x = -50 + (i / uStepsRed) * 100;
-    redPts.push(new THREE.Vector3(x, f(x), 0));
+    const yVal = f(x);
+    redPts.push(new THREE.Vector3(x, yVal, 0));
   }
   redLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(redPts),
@@ -287,7 +392,8 @@ function buildMesh(angleDeg) {
   const secondRedPts = [];
   for (let i = 0; i <= uStepsRed; i++) {
     const x = -50 + (i / uStepsRed) * 100;
-    secondRedPts.push(new THREE.Vector3(x, f2(x, isYAxis, axisValue), 0));
+    const yVal = f2(x, isYAxis, axisValue);
+    secondRedPts.push(new THREE.Vector3(x, yVal, 0));
   }
   secondRedLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(secondRedPts),
@@ -309,7 +415,7 @@ function buildMesh(angleDeg) {
   axisLine.computeLineDistances();
   scene.add(axisLine);
 
-  // === Domain‐Boundary Dashed Lines ===
+  // === Domain-Boundary Dashed Lines ===
   const domainMat = new THREE.LineDashedMaterial({
     color: 'pink',
     dashSize: 0.2,
@@ -317,7 +423,7 @@ function buildMesh(angleDeg) {
     linewidth: 1
   });
   [uStart, uEnd].forEach(u => {
-    const yFunc = f(u);
+    const yOuter = f(u);
     const yInner = f2(u, isYAxis, axisValue);
 
     if (isYAxis) {
@@ -330,9 +436,9 @@ function buildMesh(angleDeg) {
       scene.add(lineH);
       domainLines.push(lineH);
 
-      // Vertical dashed from (u, yInner) to (u, yFunc)
+      // Vertical dashed from (u, yInner) to (u, yOuter)
       const startV = new THREE.Vector3(u, yInner, 0);
-      const endV   = new THREE.Vector3(u, yFunc,  0);
+      const endV   = new THREE.Vector3(u, yOuter,  0);
       const geoV = new THREE.BufferGeometry().setFromPoints([startV, endV]);
       const lineV = new THREE.Line(geoV, domainMat);
       lineV.computeLineDistances();
@@ -348,9 +454,9 @@ function buildMesh(angleDeg) {
       scene.add(lineV);
       domainLines.push(lineV);
 
-      // Vertical dashed from (u, yInner) to (u, yFunc)
+      // Vertical dashed from (u, yInner) to (u, yOuter)
       const startU = new THREE.Vector3(u, yInner, 0);
-      const endU   = new THREE.Vector3(u, yFunc,  0);
+      const endU   = new THREE.Vector3(u, yOuter,  0);
       const geoU = new THREE.BufferGeometry().setFromPoints([startU, endU]);
       const lineU = new THREE.Line(geoU, domainMat);
       lineU.computeLineDistances();
@@ -391,10 +497,10 @@ function buildMesh(angleDeg) {
   const stride = (vSteps + 1) * 2;
   for (let i = 0; i < uSteps; i++) {
     for (let j = 0; j < vSteps; j++) {
-      const a = i * stride + j * 2;
-      const b = a + stride;
-      const c = b + 2;
-      const d = a + 2;
+      const a  = i * stride + j * 2;
+      const b  = a + stride;
+      const c  = b + 2;
+      const d  = a + 2;
       const a2 = a + 1, b2 = b + 1, c2 = c + 1, d2 = d + 1;
       // Outer surface
       indices.push(a, b, d);
@@ -469,7 +575,7 @@ function buildMesh(angleDeg) {
   );
   scene.add(secondBlueLineMesh);
 
-  // === Rotating PINK RIBBON ===
+  // === Rotating PINK RIBBON (angle > 0) ===
   const ribbonVerts = [];
   const ribbonIndices = [];
   for (let i = 0; i <= uSteps; i++) {
@@ -561,15 +667,120 @@ function buildMesh(angleDeg) {
   staticPinkMesh.castShadow = true;
   staticPinkMesh.receiveShadow = true;
   scene.add(staticPinkMesh);
+
+  // === NEW: BLUE END-CAP at x = uStart ===
+  {
+    const capVerts = [];
+    const capIndices = [];
+    const u = uStart;
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    for (let j = 0; j <= vSteps; j++) {
+      const v = (j / vSteps) * angleLimit;
+      if (isYAxis) {
+        // rotating around vertical line x = axisValue,
+        // so at x = u, dx = u - axisValue
+        const dx = u - axisValue;
+        // Outer edge
+        const xO = axisValue + dx * Math.cos(v);
+        const yO = yOuter;
+        const zO = dx * Math.sin(v);
+        // Inner edge
+        const xI = axisValue + dx * Math.cos(v);
+        const yI = yInner;
+        const zI = dx * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      } else {
+        // rotating around horizontal line y = axisValue
+        const dyOuter = yOuter - axisValue;
+        const xO = u;
+        const yO = axisValue + dyOuter * Math.cos(v);
+        const zO = dyOuter * Math.sin(v);
+        const dyInner = yInner - axisValue;
+        const xI = u;
+        const yI = axisValue + dyInner * Math.cos(v);
+        const zI = dyInner * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      }
+    }
+    for (let j = 0; j < vSteps; j++) {
+      const a = 2 * j;
+      const b = 2 * j + 1;
+      const c = 2 * (j + 1);
+      const d = 2 * (j + 1) + 1;
+      capIndices.push(a, c, b, b, c, d);
+    }
+    const capGeo = new THREE.BufferGeometry();
+    capGeo.setAttribute('position', new THREE.Float32BufferAttribute(capVerts, 3));
+    capGeo.setIndex(capIndices);
+    capGeo.computeVertexNormals();
+
+    capMeshStart = new THREE.Mesh(capGeo, createBlueMaterial());
+    capMeshStart.castShadow = true;
+    capMeshStart.receiveShadow = true;
+    scene.add(capMeshStart);
+  }
+
+  // === NEW: BLUE END-CAP at x = uEnd ===
+  {
+    const capVerts = [];
+    const capIndices = [];
+    const u = uEnd;
+    const yOuter = f(u);
+    const yInner = f2(u, isYAxis, axisValue);
+
+    for (let j = 0; j <= vSteps; j++) {
+      const v = (j / vSteps) * angleLimit;
+      if (isYAxis) {
+        const dx = u - axisValue;
+        // Outer edge
+        const xO = axisValue + dx * Math.cos(v);
+        const yO = yOuter;
+        const zO = dx * Math.sin(v);
+        // Inner edge
+        const xI = axisValue + dx * Math.cos(v);
+        const yI = yInner;
+        const zI = dx * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      } else {
+        const dyOuter = yOuter - axisValue;
+        const xO = u;
+        const yO = axisValue + dyOuter * Math.cos(v);
+        const zO = dyOuter * Math.sin(v);
+        const dyInner = yInner - axisValue;
+        const xI = u;
+        const yI = axisValue + dyInner * Math.cos(v);
+        const zI = dyInner * Math.sin(v);
+        capVerts.push(xO, yO, zO, xI, yI, zI);
+      }
+    }
+    for (let j = 0; j < vSteps; j++) {
+      const a = 2 * j;
+      const b = 2 * j + 1;
+      const c = 2 * (j + 1);
+      const d = 2 * (j + 1) + 1;
+      capIndices.push(a, c, b, b, c, d);
+    }
+    const capGeo = new THREE.BufferGeometry();
+    capGeo.setAttribute('position', new THREE.Float32BufferAttribute(capVerts, 3));
+    capGeo.setIndex(capIndices);
+    capGeo.computeVertexNormals();
+
+    capMeshEnd = new THREE.Mesh(capGeo, createBlueMaterial());
+    capMeshEnd.castShadow = true;
+    capMeshEnd.receiveShadow = true;
+    scene.add(capMeshEnd);
+  }
 }
 
-// === 13. Events ===
+// === 14. Events ===
 slider.addEventListener("input", () => buildMesh(parseFloat(slider.value)));
 [input, xMinInput, xMaxInput, axisInput, secondFuncInput].forEach(el =>
   el.addEventListener("change", () => buildMesh(parseFloat(slider.value)))
 );
 
-// === 14. Initial Render & Animation ===
+// === 15. Initial Render & Animation ===
 buildMesh(0);
 
 function animate() {
