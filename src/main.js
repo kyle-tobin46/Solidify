@@ -45,7 +45,7 @@ document.body.appendChild(input);
 
 const xMinInput = document.createElement("input");
 xMinInput.type = "text";  // allow expressions, not just numbers
-xMinInput.value = "-1";
+xMinInput.value = "-pi/2";
 xMinInput.style.position = "absolute";
 xMinInput.style.top = "70px";
 xMinInput.style.left = "10px";
@@ -54,7 +54,7 @@ document.body.appendChild(xMinInput);
 
 const xMaxInput = document.createElement("input");
 xMaxInput.type = "text";  // allow expressions, not just numbers
-xMaxInput.value = "1";
+xMaxInput.value = "pi/2";
 xMaxInput.style.position = "absolute";
 xMaxInput.style.top = "100px";
 xMaxInput.style.left = "10px";
