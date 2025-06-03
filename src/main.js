@@ -119,7 +119,7 @@ scene.add(pointLight);
 
 // === 6. Helpers ===
 const gridHelperXY = new THREE.GridHelper(100, 100, 0xeb4034, 0xffffff);
-gridHelperXY.material.opacity = 0.2;
+gridHelperXY.material.opacity = 1;
 gridHelperXY.material.transparent = true;
 gridHelperXY.rotation.x = Math.PI / 2;
 scene.add(gridHelperXY);
@@ -204,7 +204,8 @@ function buildMesh(angleDeg) {
   const uEnd   = parseFloat(xMaxInput.value);
   if (isNaN(uStart) || isNaN(uEnd) || uStart === uEnd) return;
 
-  const uSteps = 400, vSteps = 120;
+  const uSteps = 800, vSteps = 120;
+  const uStepsRed = 8000;
   const uRange = uEnd - uStart;
   const angleLimit = (angleDeg / 360) * 2 * Math.PI;
 
@@ -236,25 +237,25 @@ function buildMesh(angleDeg) {
 
   // === Red Function Line (f(x), always visible) ===
   const redPts = [];
-  for (let i = 0; i <= 500; i++) {
-    const x = -50 + (i / 500) * 100;
+  for (let i = 0; i <= uStepsRed; i++) {
+    const x = -50 + (i / uStepsRed) * 100;
     redPts.push(new THREE.Vector3(x, f(x), 0));
   }
   redLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(redPts),
-    new THREE.LineBasicMaterial({ color: 0xff0000 })
+    new THREE.LineBasicMaterial({ color: 0xfc2803 })
   );
   scene.add(redLineMesh);
 
   // === Red Line for Second Function (f2(x), always visible) ===
   const secondRedPts = [];
-  for (let i = 0; i <= 500; i++) {
-    const x = -50 + (i / 500) * 100;
+  for (let i = 0; i <= uStepsRed; i++) {
+    const x = -50 + (i / uStepsRed) * 100;
     secondRedPts.push(new THREE.Vector3(x, f2(x, isYAxis, axisValue), 0));
   }
   secondRedLineMesh = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints(secondRedPts),
-    new THREE.LineBasicMaterial({ color: 0xff0000 })
+    new THREE.LineBasicMaterial({ color: 0xfc2803 })
   );
   scene.add(secondRedLineMesh);
 
@@ -378,7 +379,7 @@ function buildMesh(angleDeg) {
     side: THREE.DoubleSide,
     shininess: 100,
     transparent: true,
-    opacity: 0.9
+    opacity: 0.8
   }));
   mesh.frustumCulled = false;
   scene.add(mesh);
