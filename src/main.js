@@ -3,7 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 
-// === 2. Global Variables ===
+// === GLOBALS ===
 let mesh,
     redLineMesh,
     secondRedLineMesh,
@@ -12,8 +12,8 @@ let mesh,
     axisLine,
     pinkMesh,        // rotating ribbon at current angle
     staticPinkMesh,  // ribbon at angle = 0
-    capMeshStart,    // new blue end-cap at x = uStart
-    capMeshEnd;      // new blue end-cap at x = uEnd
+    capMeshStart,    // blue end-cap at x = uStart
+    capMeshEnd;      // blue end-cap at x = uEnd
 let domainLines = [];
 
 // Camera-animation state
@@ -21,89 +21,9 @@ let isCameraAnimating = false;
 const cameraStartPos = new THREE.Vector3();
 const cameraEndPos = new THREE.Vector3();
 let animStartTime = 0;
-const animDuration = 500; // milliseconds
+const animDuration = 500; // ms
 
-// === 3. Input Elements ===
-const slider = document.createElement("input");
-slider.type = "range";
-slider.min = 0;
-slider.max = 360;
-slider.value = 0;
-slider.style.position = "absolute";
-slider.style.top = "10px";
-slider.style.left = "10px";
-document.body.appendChild(slider);
-
-const input = document.createElement("input");
-// Now we expect “y=…” or “x=…”; default to “y=sin(x)”
-input.value = "y=sin(x)";
-input.type = "text";
-input.style.position = "absolute";
-input.style.top = "40px";
-input.style.left = "10px";
-document.body.appendChild(input);
-
-const xMinInput = document.createElement("input");
-xMinInput.type = "text";  // allow expressions, not just numbers
-xMinInput.value = "-1";
-xMinInput.style.position = "absolute";
-xMinInput.style.top = "70px";
-xMinInput.style.left = "10px";
-xMinInput.placeholder = "x min (e.g. -pi/2)";
-document.body.appendChild(xMinInput);
-
-const xMaxInput = document.createElement("input");
-xMaxInput.type = "text";  // allow expressions, not just numbers
-xMaxInput.value = "1";
-xMaxInput.style.position = "absolute";
-xMaxInput.style.top = "100px";
-xMaxInput.style.left = "10px";
-xMaxInput.placeholder = "x max (e.g. pi/2)";
-document.body.appendChild(xMaxInput);
-
-const axisInput = document.createElement("input");
-// We expect “y=0” or “x=0”
-axisInput.value = "y=0";
-axisInput.type = "text";
-axisInput.style.position = "absolute";
-axisInput.style.top = "130px";
-axisInput.style.left = "10px";
-axisInput.placeholder = "axis of rotation (e.g. y=0 or x=2)";
-document.body.appendChild(axisInput);
-
-const secondFuncInput = document.createElement("input");
-secondFuncInput.type = "text";
-// Optional second function; if blank, it will default to the axis-value
-secondFuncInput.value = "";
-secondFuncInput.style.position = "absolute";
-secondFuncInput.style.top = "160px";
-secondFuncInput.style.left = "10px";
-secondFuncInput.placeholder = "second function (optional, e.g. y=x^2)";
-document.body.appendChild(secondFuncInput);
-
-// === Buttons for Camera Views ===
-const frontBtn = document.createElement("button");
-frontBtn.innerText = "Front View";
-frontBtn.style.position = "absolute";
-frontBtn.style.top = "190px";
-frontBtn.style.left = "10px";
-document.body.appendChild(frontBtn);
-
-const sideBtn = document.createElement("button");
-sideBtn.innerText = "Side View";
-sideBtn.style.position = "absolute";
-sideBtn.style.top = "220px";
-sideBtn.style.left = "10px";
-document.body.appendChild(sideBtn);
-
-const topBtn = document.createElement("button");
-topBtn.innerText = "Top View";
-topBtn.style.position = "absolute";
-topBtn.style.top = "250px";
-topBtn.style.left = "10px";
-document.body.appendChild(topBtn);
-
-// === 4. Scene & Camera Setup ===
+// === SCENE, CAMERA, RENDERER SETUP ===
 const scene = new THREE.Scene();
 
 const d = 5;
@@ -114,15 +34,14 @@ const camera = new THREE.OrthographicCamera(
 camera.position.set(0, 0, 10);
 camera.lookAt(0, 0, 0);
 
-// === 5. Renderer Setup (with Shadows) ===
 const renderer = new THREE.WebGLRenderer({
   canvas: document.querySelector('#bg'),
   antialias: true
 });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x263238);               // dark background
-renderer.shadowMap.enabled = true;               // enable shadows
+renderer.setClearColor(0x263238);
+renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 window.addEventListener('resize', () => {
@@ -135,46 +54,41 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// === 6. Lights ===
+// === LIGHTS ===
 {
-  // Ambient Light
   const ambient = new THREE.AmbientLight(0xffffff, 1.5);
   scene.add(ambient);
 
-  // Directional Light (casts shadows)
   const dirLight = new THREE.DirectionalLight(0xffffff, 3);
   dirLight.position.set(5, 10, 7.5);
   dirLight.castShadow = true;
-
-  // Configure shadow camera for sharper shadows
   dirLight.shadow.camera.left   = -2;
   dirLight.shadow.camera.right  = +2;
   dirLight.shadow.camera.top    = +2;
   dirLight.shadow.camera.bottom = -2;
   dirLight.shadow.mapSize.width  = 1024;
   dirLight.shadow.mapSize.height = 1024;
-  dirLight.shadow.radius = 4; // soften edges
-
+  dirLight.shadow.radius = 4;
   scene.add(dirLight);
 }
 
-// === 7. Grid Helper (XY plane) ===
+// === GRID HELPER ===
 const gridHelperXY = new THREE.GridHelper(100, 100, 0xeb4034, 0xffffff);
 gridHelperXY.material.opacity = 0.2;
 gridHelperXY.material.transparent = true;
-gridHelperXY.rotation.x = Math.PI / 2; // rotate from XZ into XY
+gridHelperXY.rotation.x = Math.PI / 2;
 scene.add(gridHelperXY);
 
-// === 8. Orbit Controls ===
+// === ORBIT CONTROLS ===
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableZoom = true;
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
 
-// === 9. Helpers: Create PBR Materials ===
+// === MATERIAL HELPERS ===
 function createRibbonMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xE91E63,      // pink
+    color: 0xE91E63,
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -187,7 +101,7 @@ function createRibbonMaterial() {
 
 function createSolidMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0xFFC107,      // yellow
+    color: 0xFFC107,
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -200,7 +114,7 @@ function createSolidMaterial() {
 
 function createBlueMaterial() {
   return new THREE.MeshStandardMaterial({
-    color: 0x0288D1,      // blue
+    color: 0x0288D1,
     metalness: 0.1,
     roughness: 0.75,
     transparent: true,
@@ -215,22 +129,16 @@ function createLineMaterial(colorString) {
   return new THREE.LineBasicMaterial({ color: colorString });
 }
 
-// === 10. Value Parsing Helper ===
-// Converts a text expression (e.g. "-pi/2", "sin(pi/4)+1", "3^2") into a number.
-//  - Replaces ^→**, prefixes math functions with Math., replaces pi/e.
+// === VALUE PARSING ===
 function parseValue(raw) {
   let s = raw.trim().replace(/\s+/g, '');
   if (s === '') return NaN;
-  // Replace ^ with **
   s = s.replace(/\^/g, '**');
-  // Prefix math functions
   s = s.replace(
     /\b(sin|cos|tan|asin|acos|atan|sqrt|log|exp|abs)\b/gi,
     match => 'Math.' + match.toLowerCase()
   );
-  // Replace pi → Math.PI
   s = s.replace(/\bpi\b/gi, 'Math.PI');
-  // Replace e → Math.E
   s = s.replace(/\be\b/gi, 'Math.E');
   try {
     return eval(s);
@@ -239,67 +147,50 @@ function parseValue(raw) {
   }
 }
 
-// === 11. Equation Parsing & Evaluators ===
-// This helper turns something like “y=sin(x^2)” or “y=4” or “x=2y” into a valid JS expression in terms of x.
-//  - If LHS is “y=”, we simply grab the RHS.
-//  - If LHS is “x=...y” (a simple linear case), we solve for y = x/N if RHS matches N*y.
-//  - Replaces ^ → **, prefixes common math functions with Math., and replaces pi/e with Math.PI/Math.E.
+// === EQUATION PARSING & EVALUATORS ===
 function parseEquation(equationRaw) {
-  let s = equationRaw.trim().replace(/\s+/g, ''); // remove all whitespace
+  let s = equationRaw.trim().replace(/\s+/g, '');
   if (!s.includes('=')) {
-    // If no “=”, assume “y=” + that
     s = 'y=' + s;
   }
   const [lhs, rhs] = s.split('=');
   let expr = '';
   if (lhs.toLowerCase() === 'y') {
-    // “y=...” → just grab RHS
     expr = rhs;
   } else if (lhs.toLowerCase() === 'x') {
-    // “x=...y” → solve for y if of form “x=N*y”
     const m = rhs.match(/^([0-9]*\.?[0-9]+)\*?y$/i);
     if (m) {
       const coef = parseFloat(m[1]);
       expr = `(x/${coef})`;
+    } else if (rhs.toLowerCase() === 'y') {
+      expr = 'x';
     } else {
-      if (rhs.toLowerCase() === 'y') {
-        expr = 'x';
-      } else {
-        // Fallback: treat RHS as a function of x
-        expr = rhs;
-      }
+      expr = rhs;
     }
   } else {
-    // Neither “y” nor “x” on LHS → treat entire string as “y=...”
     expr = s;
   }
-  // Replace ^ with **
   expr = expr.replace(/\^/g, '**');
-  // Prefix math functions
   expr = expr.replace(
     /\b(sin|cos|tan|asin|acos|atan|sqrt|log|exp|abs)\b/gi,
     match => 'Math.' + match.toLowerCase()
   );
-  // Replace pi → Math.PI
   expr = expr.replace(/\bpi\b/gi, 'Math.PI');
-  // Replace e → Math.E
   expr = expr.replace(/\be\b/gi, 'Math.E');
   return expr;
 }
 
-// Evaluator for the first function (red), always in terms of x
 function f(x) {
   try {
-    const parsed = parseEquation(input.value);
+    const parsed = parseEquation(document.querySelector('#func1-input').value);
     return eval(parsed);
   } catch {
     return NaN;
   }
 }
 
-// Evaluator for the second function (cyan/red₂), or default to the axis-value if blank/invalid
 function f2(x, isYAxis, axisValue) {
-  const raw = secondFuncInput.value.trim();
+  const raw = document.querySelector('#func2-input').value.trim();
   if (!raw) {
     return axisValue;
   }
@@ -311,7 +202,7 @@ function f2(x, isYAxis, axisValue) {
   }
 }
 
-// === 12. Camera Animation Helper ===
+// === CAMERA ANIMATION HELPER ===
 function animateCameraTo(x, y, z) {
   cameraStartPos.copy(camera.position);
   cameraEndPos.set(x, y, z);
@@ -319,32 +210,18 @@ function animateCameraTo(x, y, z) {
   isCameraAnimating = true;
 }
 
-// Hook up view buttons:
-frontBtn.addEventListener("click", () => {
-  animateCameraTo(0, 0, 10);
-});
-sideBtn.addEventListener("click", () => {
-  animateCameraTo(10, 0, 0);
-});
-topBtn.addEventListener("click", () => {
-  animateCameraTo(0, 10, 0);
-});
-
-// === 13. Mesh Builder ===
+// === BUILD MESH ===
 function buildMesh(angleDeg) {
-  // Parse domain endpoints via parseValue (supports pi, sin, ^, etc.)
-  const uStart = parseValue(xMinInput.value);
-  const uEnd   = parseValue(xMaxInput.value);
+  // 1) Parse domain endpoints
+  let uStart = parseValue(document.querySelector('#x-min-input').value);
+  let uEnd   = parseValue(document.querySelector('#x-max-input').value);
   if (isNaN(uStart) || isNaN(uEnd) || uStart === uEnd) return;
+  if (uStart > uEnd) {
+    [uStart, uEnd] = [uEnd, uStart];
+  }
 
-  const uSteps = 200;
-  const vSteps = 120;
-  const uStepsRed = 8000;
-  const uRange = uEnd - uStart;
-  const angleLimit = (angleDeg / 360) * 2 * Math.PI;
-
-  // Parse axis ("x=..." or "y=...")
-  const axisRaw = axisInput.value.trim().replace(/\s+/g, '');
+  // 2) Determine axis
+  const axisRaw = document.querySelector('#axis-input').value.trim().replace(/\s+/g, '');
   let isYAxis = false;
   let axisValue = 0;
   if (axisRaw.toLowerCase().startsWith("x=")) {
@@ -354,7 +231,48 @@ function buildMesh(angleDeg) {
     axisValue = parseFloat(axisRaw.split("=")[1]);
   }
 
-  // Dispose previous objects (including end-caps)
+  // 3) Clamp endpoints so that both f and f2 are finite
+  const sampleCount = 100;
+  const delta = (uEnd - uStart) / sampleCount;
+  function bothFinite(x) {
+    return isFinite(f(x)) && isFinite(f2(x, isYAxis, axisValue));
+  }
+
+  let clampedStart = uStart;
+  if (!bothFinite(clampedStart)) {
+    for (let i = 0; i <= sampleCount; i++) {
+      const testX = uStart + i * delta;
+      if (bothFinite(testX)) {
+        clampedStart = testX;
+        break;
+      }
+    }
+  }
+
+  let clampedEnd = uEnd;
+  if (!bothFinite(clampedEnd)) {
+    for (let i = 0; i <= sampleCount; i++) {
+      const testX = uEnd - i * delta;
+      if (bothFinite(testX)) {
+        clampedEnd = testX;
+        break;
+      }
+    }
+  }
+
+  if (clampedStart >= clampedEnd) return; // no valid overlap
+
+  uStart = clampedStart;
+  uEnd = clampedEnd;
+
+  // 4) Now generate everything as before, but using [uStart, uEnd]
+  const uSteps = 200;
+  const vSteps = 120;
+  const uStepsRed = 8000;
+  const uRange = uEnd - uStart;
+  const angleLimit = (angleDeg / 360) * 2 * Math.PI;
+
+  // Dispose previous
   [
     mesh, redLineMesh, secondRedLineMesh, blueLineMesh, secondBlueLineMesh,
     axisLine, pinkMesh, staticPinkMesh, capMeshStart, capMeshEnd
@@ -374,8 +292,7 @@ function buildMesh(angleDeg) {
   mesh = redLineMesh = secondRedLineMesh = blueLineMesh = secondBlueLineMesh =
   axisLine = pinkMesh = staticPinkMesh = capMeshStart = capMeshEnd = null;
 
-  // === Red Function Line (f(x)) ===
-  // Always draw from x = -50 to +50 for visibility
+  // ––– Red Function Line (f(x)) –––
   const redPts = [];
   for (let i = 0; i <= uStepsRed; i++) {
     const x = -50 + (i / uStepsRed) * 100;
@@ -388,7 +305,7 @@ function buildMesh(angleDeg) {
   );
   scene.add(redLineMesh);
 
-  // === Red Line for f₂(x) ===
+  // ––– Red Line for f₂(x) –––
   const secondRedPts = [];
   for (let i = 0; i <= uStepsRed; i++) {
     const x = -50 + (i / uStepsRed) * 100;
@@ -401,7 +318,7 @@ function buildMesh(angleDeg) {
   );
   scene.add(secondRedLineMesh);
 
-  // === Axis of Rotation Line (dashed) ===
+  // ––– Axis of Rotation Line (dashed) –––
   const axisMat = new THREE.LineDashedMaterial({
     color: 0xffa500,
     dashSize: 0.5,
@@ -415,7 +332,7 @@ function buildMesh(angleDeg) {
   axisLine.computeLineDistances();
   scene.add(axisLine);
 
-  // === Domain-Boundary Dashed Lines ===
+  // ––– Domain-Boundary Dashed Lines –––
   const domainMat = new THREE.LineDashedMaterial({
     color: 'pink',
     dashSize: 0.2,
@@ -465,7 +382,7 @@ function buildMesh(angleDeg) {
     }
   });
 
-  // === Generate Full Solid of Revolution ===
+  // ––– Generate Full Solid of Revolution –––
   const vertices = [], indices = [];
   for (let i = 0; i <= uSteps; i++) {
     const u = uStart + (i / uSteps) * uRange;
@@ -521,7 +438,7 @@ function buildMesh(angleDeg) {
   mesh.receiveShadow = true;
   scene.add(mesh);
 
-  // === Blue Rotated Curve for f(x) ===
+  // ––– Blue Rotated Curve for f(x) –––
   const bluePts = [];
   for (let i = 0; i <= uSteps * 2; i++) {
     const x = uStart + (i / (uSteps * 2)) * uRange;
@@ -548,7 +465,7 @@ function buildMesh(angleDeg) {
   );
   scene.add(blueLineMesh);
 
-  // === Blue Rotated Curve for f₂(x) ===
+  // ––– Blue Rotated Curve for f₂(x) –––
   const secondBluePts = [];
   for (let i = 0; i <= uSteps * 2; i++) {
     const x = uStart + (i / (uSteps * 2)) * uRange;
@@ -575,7 +492,7 @@ function buildMesh(angleDeg) {
   );
   scene.add(secondBlueLineMesh);
 
-  // === Rotating PINK RIBBON (angle > 0) ===
+  // ––– Rotating PINK RIBBON (angle > 0) –––
   const ribbonVerts = [];
   const ribbonIndices = [];
   for (let i = 0; i <= uSteps; i++) {
@@ -621,7 +538,7 @@ function buildMesh(angleDeg) {
   pinkMesh.receiveShadow = true;
   scene.add(pinkMesh);
 
-  // === STATIC PINK RIBBON (angle = 0) ===
+  // ––– STATIC PINK RIBBON (angle = 0) –––
   const ribbonVertsStatic = [];
   const ribbonIndicesStatic = [];
   for (let i = 0; i <= uSteps; i++) {
@@ -629,7 +546,6 @@ function buildMesh(angleDeg) {
     const yOuter = f(u);
     const yInner = f2(u, isYAxis, axisValue);
 
-    // angleLimit = 0 → cos(0)=1, sin(0)=0
     if (isYAxis) {
       const dx = u - axisValue;
       const xO = axisValue + dx * 1;
@@ -668,7 +584,7 @@ function buildMesh(angleDeg) {
   staticPinkMesh.receiveShadow = true;
   scene.add(staticPinkMesh);
 
-  // === NEW: BLUE END-CAP at x = uStart ===
+  // ––– END-CAP at x = uStart –––
   {
     const capVerts = [];
     const capIndices = [];
@@ -679,20 +595,15 @@ function buildMesh(angleDeg) {
     for (let j = 0; j <= vSteps; j++) {
       const v = (j / vSteps) * angleLimit;
       if (isYAxis) {
-        // rotating around vertical line x = axisValue,
-        // so at x = u, dx = u - axisValue
         const dx = u - axisValue;
-        // Outer edge
         const xO = axisValue + dx * Math.cos(v);
         const yO = yOuter;
         const zO = dx * Math.sin(v);
-        // Inner edge
         const xI = axisValue + dx * Math.cos(v);
         const yI = yInner;
         const zI = dx * Math.sin(v);
         capVerts.push(xO, yO, zO, xI, yI, zI);
       } else {
-        // rotating around horizontal line y = axisValue
         const dyOuter = yOuter - axisValue;
         const xO = u;
         const yO = axisValue + dyOuter * Math.cos(v);
@@ -722,7 +633,7 @@ function buildMesh(angleDeg) {
     scene.add(capMeshStart);
   }
 
-  // === NEW: BLUE END-CAP at x = uEnd ===
+  // ––– END-CAP at x = uEnd –––
   {
     const capVerts = [];
     const capIndices = [];
@@ -734,11 +645,9 @@ function buildMesh(angleDeg) {
       const v = (j / vSteps) * angleLimit;
       if (isYAxis) {
         const dx = u - axisValue;
-        // Outer edge
         const xO = axisValue + dx * Math.cos(v);
         const yO = yOuter;
         const zO = dx * Math.sin(v);
-        // Inner edge
         const xI = axisValue + dx * Math.cos(v);
         const yI = yInner;
         const zI = dx * Math.sin(v);
@@ -774,19 +683,40 @@ function buildMesh(angleDeg) {
   }
 }
 
-// === 14. Events ===
-slider.addEventListener("input", () => buildMesh(parseFloat(slider.value)));
-[input, xMinInput, xMaxInput, axisInput, secondFuncInput].forEach(el =>
-  el.addEventListener("change", () => buildMesh(parseFloat(slider.value)))
-);
+// === EVENTS & HOOKUPS ===
+const angleSlider = document.querySelector('#angle-slider');
+angleSlider.addEventListener('input', () => buildMesh(parseFloat(angleSlider.value)));
 
-// === 15. Initial Render & Animation ===
+[
+  '#func1-input',
+  '#func2-input',
+  '#x-min-input',
+  '#x-max-input',
+  '#axis-input'
+].forEach(selector => {
+  document.querySelector(selector).addEventListener('change', () => {
+    buildMesh(parseFloat(angleSlider.value));
+  });
+});
+
+document.querySelector('#front-view-btn').addEventListener('click', () => {
+  animateCameraTo(0, 0, 10);
+});
+
+document.querySelector('#side-view-btn').addEventListener('click', () => {
+  animateCameraTo(10, 0, 0);
+});
+
+document.querySelector('#top-view-btn').addEventListener('click', () => {
+  animateCameraTo(0, 10, 0);
+});
+
+// === INITIAL BUILD & RENDER LOOP ===
 buildMesh(0);
 
 function animate() {
   requestAnimationFrame(animate);
 
-  // Smooth camera interpolation:
   if (isCameraAnimating) {
     const now = performance.now();
     const elapsed = now - animStartTime;
