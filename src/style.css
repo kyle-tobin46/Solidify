@@ -3,3 +3,93 @@ canvas {
   top: 0;
   left: 0;
 }
+
+#gui {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 240px;
+  background: rgba(40, 40, 45, 0.9);
+  color: #eee;
+  font-family: sans-serif;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+  z-index: 10;
+
+  /* Center everything inside */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#gui h2 {
+  margin-top: 0;
+  font-size: 18px;
+  text-align: center;
+  color: #fff;
+}
+
+#gui label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: #ddd;
+  /* Center label text */
+  text-align: center;
+  width: 100%;
+}
+
+#gui input[type="text"] {
+  /* Make it 90% of the container’s width, then center */
+  width: 90%;
+  padding: 6px 8px;
+  margin-bottom: 12px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #2b2b2f;
+  color: #eee;
+  font-size: 14px;
+  margin: 0 auto 12px;
+}
+
+#gui input[type="range"] {
+  /* Keep slider full width of container, but center label above */
+  width: 90%;
+  margin-top: 4px;
+  margin-bottom: 16px;
+}
+
+/* Center the angle label as well */
+#angle-label {
+  font-size: 14px;
+  color: #ddd;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  width: 100%;
+  text-align: center;
+}
+
+.view-buttons {
+  /* Make the buttons row 90% wide and center it */
+  width: 90%;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.view-buttons button {
+  flex: 1;
+  margin: 0 2px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: #444;
+  color: #eee;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-buttons button:hover {
+  background: #5a5a5a;
+}
