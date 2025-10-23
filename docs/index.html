@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Solidify</title>
+    <script type="module" crossorigin src="/&lt;Solidify&gt;/assets/index-xh-rgE7c.js"></script>
+    <link rel="stylesheet" crossorigin href="/&lt;Solidify&gt;/assets/index-CxDPerDE.css">
+  </head>
+  <body>
+    <canvas id="bg"></canvas>
+
+    <!-- === GUI CONTAINER === -->
+    <div id="gui">
+      <h2>Solid of Revolution</h2>
+
+      <!-- First Function -->
+      <label for="func1-input">Function 1 (y = …)</label>
+      <input type="text" id="func1-input" value="y=sin(x)" />
+
+      <!-- Second Function -->
+      <label for="func2-input">Function 2 (optional)</label>
+      <input type="text" id="func2-input" placeholder="e.g. y=x^2" />
+
+      <!-- Domain Min -->
+      <label for="x-min-input">Domain Start (x min)</label>
+      <input type="text" id="x-min-input" value="-pi/2" placeholder="e.g. -pi/2" />
+
+      <!-- Domain Max -->
+      <label for="x-max-input">Domain End (x max)</label>
+      <input type="text" id="x-max-input" value="pi/2" placeholder="e.g. pi/2" />
+
+      <!-- Axis of Rotation -->
+      <label for="axis-input">Axis of Rotation</label>
+      <input type="text" id="axis-input" value="y=0" placeholder="e.g. y=0 or x=2" />
+
+      <!-- Angle Slider -->
+      <label id="angle-label" for="angle-slider">Rotation Angle (°)</label>
+      <input type="range" id="angle-slider" min="0" max="360" value="0" />
+
+      <!-- View Buttons -->
+      <div class="view-buttons">
+        <button id="front-view-btn">Front</button>
+        <button id="side-view-btn">Side</button>
+        <button id="top-view-btn">Top</button>
+      </div>
+    </div>
+
+  </body>
+</html>
